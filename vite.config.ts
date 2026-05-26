@@ -12,4 +12,10 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      // Permitir acesso via domínios externos (nginx-proxy, cloudflare, etc)
+      allowedHosts: true,
+    },
+  },
 });
