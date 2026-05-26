@@ -25,17 +25,20 @@ jobs:
 
       - name: Create Deployment Package
         run: |
-          # Empacotar todo o projeto (exceto node_modules, .git, etc via .dockerignore)
+          # Empacotar todo o projeto (exceto node_modules, .git, etc)
+          # Criar tar fora do diretório para evitar "file changed as we read it"
+          cd ..
           tar -czf volei-deploy.tar.gz \
-            --exclude='node_modules' \
-            --exclude='.git' \
-            --exclude='.vinxi' \
-            --exclude='.output' \
-            --exclude='dist' \
-            --exclude='*.log' \
-            --exclude='.env.local' \
-            --exclude='volei-deploy.tar.gz' \
-            .
+            --exclude='volley-mix-mate/node_modules' \
+            --exclude='volley-mix-mate/.git' \
+            --exclude='volley-mix-mate/.vinxi' \
+            --exclude='volley-mix-mate/.output' \
+            --exclude='volley-mix-mate/dist' \
+            --exclude='volley-mix-mate/*.log' \
+            --exclude='volley-mix-mate/.env.local' \
+            volley-mix-mate
+          mv volei-deploy.tar.gz volley-mix-mate/
+          cd volley-mix-mate
 
       - name: Deploy via SSH
         env:
