@@ -249,12 +249,14 @@ function Index() {
                 team={state.teamA}
                 onWin={() => declareWinner("A")}
                 canDeclare={!!(state.teamA && state.teamB)}
+                onPlayerLeave={(id) => removePlayer(id)}
               />
               <TeamCard
                 label="Time B"
                 team={state.teamB}
                 onWin={() => declareWinner("B")}
                 canDeclare={!!(state.teamA && state.teamB)}
+                onPlayerLeave={(id) => removePlayer(id)}
               />
             </CardContent>
           </Card>
