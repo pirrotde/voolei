@@ -11,9 +11,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Trophy, Shuffle, UserPlus, RotateCcw, LogOut } from "lucide-react";
+import {
+  Trash2,
+  Trophy,
+  Shuffle,
+  UserPlus,
+  RotateCcw,
+  LogOut,
+  Minus,
+  Plus,
+} from "lucide-react";
 import {
   buildTeam,
+  currentTarget,
   loadState,
   pickTeam,
   saveState,
@@ -34,6 +44,8 @@ function Index() {
     queue: [],
     teamA: null,
     teamB: null,
+    scoreA: 0,
+    scoreB: 0,
     history: [],
   }));
   const [hydrated, setHydrated] = useState(false);
@@ -63,6 +75,8 @@ function Index() {
     return s;
   }, [state.teamA, state.teamB]);
 
+  const target = currentTarget(state.scoreA, state.scoreB);
+
   function addPlayer() {
     const n = name.trim();
     if (!n) return;
@@ -83,26 +97,30 @@ function Index() {
       const inTeamA = s.teamA?.players.some((p) => p.id === id);
       const inTeamB = s.teamB?.players.some((p) => p.id === id);
 
-      // Se nao esta em quadra, so remove
       if (!inTeamA && !inTeamB) {
         return { ...s, players: newPlayers, queue: newQueue };
       }
 
-      // Se esta em quadra, dissolve o time dele e recoloca os colegas na fila
       let returningIds: string[] = [];
       let teamA = s.teamA;
       let teamB = s.teamB;
+      let scoreA = s.scoreA;
+      let scoreB = s.scoreB;
 
       if (inTeamA && teamA) {
         returningIds = teamA.players
           .filter((p) => p.id !== id)
           .map((p) => p.id);
         teamA = null;
+        scoreA = 0;
+        scoreB = 0;
       } else if (inTeamB && teamB) {
         returningIds = teamB.players
           .filter((p) => p.id !== id)
           .map((p) => p.id);
         teamB = null;
+        scoreA = 0;
+        scoreB = 0;
       }
 
       return {
@@ -111,6 +129,8 @@ function Index() {
         queue: [...newQueue, ...returningIds],
         teamA,
         teamB,
+        scoreA,
+        scoreB,
       };
     });
   }
@@ -139,43 +159,68 @@ function Index() {
       }
       if (!teamB) {
         const r = pickTeam(queue, byId);
-        if (!r) return { ...s, teamA, queue };
+        if (!r) return { ...s, teamA, queue, scoreA: 0, scoreB: 0 };
         teamB = buildTeam(r.teamIds, byId);
         queue = r.rest;
       }
-      return { ...s, teamA, teamB, queue };
+      return { ...s, teamA, teamB, queue, scoreA: 0, scoreB: 0 };
     });
   }
 
-  function declareWinner(winner: "A" | "B") {
+  function changeScore(team: "A" | "B", delta: number) {
     setState((s) => {
       if (!s.teamA || !s.teamB) return s;
-      const win = winner === "A" ? s.teamA : s.teamB;
-      const lose = winner === "A" ? s.teamB : s.teamA;
+      const scoreA = team === "A" ? Math.max(0, s.scoreA + delta) : s.scoreA;
+      const scoreB = team === "B" ? Math.max(0, s.scoreB + delta) : s.scoreB;
+      const tgt = currentTarget(scoreA, scoreB);
 
-      // perdedores vao para o fim da fila (ordem mantida)
-      const newQueue = [...s.queue, ...lose.players.map((p) => p.id)];
-
-      // monta novo time desafiante
-      const r = pickTeam(newQueue, byId);
-      const newChallenger: Team | null = r ? buildTeam(r.teamIds, byId) : null;
-      const restQueue = r ? r.rest : newQueue;
-
-      return {
-        ...s,
-        teamA: winner === "A" ? win : newChallenger,
-        teamB: winner === "B" ? win : newChallenger,
-        queue: restQueue,
-        history: [
-          {
-            winnerNames: win.players.map((p) => p.name),
-            loserNames: lose.players.map((p) => p.name),
-            at: Date.now(),
-          },
-          ...s.history,
-        ].slice(0, 30),
-      };
+      // auto-declara vencedor ao atingir o alvo
+      if (scoreA >= tgt || scoreB >= tgt) {
+        return finishMatch(s, scoreA >= tgt ? "A" : "B", scoreA, scoreB);
+      }
+      return { ...s, scoreA, scoreB };
     });
+  }
+
+  function finishMatch(
+    s: State,
+    winner: "A" | "B",
+    scoreA: number,
+    scoreB: number,
+  ): State {
+    if (!s.teamA || !s.teamB) return s;
+    const win = winner === "A" ? s.teamA : s.teamB;
+    const lose = winner === "A" ? s.teamB : s.teamA;
+    const scoreWin = winner === "A" ? scoreA : scoreB;
+    const scoreLose = winner === "A" ? scoreB : scoreA;
+
+    const newQueue = [...s.queue, ...lose.players.map((p) => p.id)];
+    const r = pickTeam(newQueue, byId);
+    const newChallenger: Team | null = r ? buildTeam(r.teamIds, byId) : null;
+    const restQueue = r ? r.rest : newQueue;
+
+    return {
+      ...s,
+      teamA: winner === "A" ? win : newChallenger,
+      teamB: winner === "B" ? win : newChallenger,
+      queue: restQueue,
+      scoreA: 0,
+      scoreB: 0,
+      history: [
+        {
+          winnerNames: win.players.map((p) => p.name),
+          loserNames: lose.players.map((p) => p.name),
+          scoreWin,
+          scoreLose,
+          at: Date.now(),
+        },
+        ...s.history,
+      ].slice(0, 30),
+    };
+  }
+
+  function declareWinner(winner: "A" | "B") {
+    setState((s) => finishMatch(s, winner, s.scoreA, s.scoreB));
   }
 
   function resetCourt() {
@@ -183,8 +228,19 @@ function Index() {
       const ids: string[] = [];
       s.teamA?.players.forEach((p) => ids.push(p.id));
       s.teamB?.players.forEach((p) => ids.push(p.id));
-      return { ...s, teamA: null, teamB: null, queue: [...s.queue, ...ids] };
+      return {
+        ...s,
+        teamA: null,
+        teamB: null,
+        scoreA: 0,
+        scoreB: 0,
+        queue: [...s.queue, ...ids],
+      };
     });
+  }
+
+  function resetScores() {
+    setState((s) => ({ ...s, scoreA: 0, scoreB: 0 }));
   }
 
   function reshuffleAll() {
@@ -194,12 +250,18 @@ function Index() {
         ...(s.teamB?.players.map((p) => p.id) ?? []),
         ...s.queue,
       ];
-      // embaralha mantendo mulheres distribuidas: simples shuffle
       for (let i = all.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [all[i], all[j]] = [all[j], all[i]];
       }
-      return { ...s, teamA: null, teamB: null, queue: all };
+      return {
+        ...s,
+        teamA: null,
+        teamB: null,
+        scoreA: 0,
+        scoreB: 0,
+        queue: all,
+      };
     });
   }
 
@@ -207,6 +269,9 @@ function Index() {
   const benchPlayers = state.players.filter(
     (p) => !state.queue.includes(p.id) && !inCourt.has(p.id),
   );
+
+  const matchOn = !!(state.teamA && state.teamB);
+  const tiebreak = state.scoreA >= 11 && state.scoreB >= 11;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -217,23 +282,34 @@ function Index() {
               Volei da Galera
             </h1>
             <p className="text-sm text-muted-foreground">
-              Times de 4 · 1 mulher por time · rotacao automatica
+              Times de 4 · 1 mulher por time · jogo ate {target}
+              {tiebreak && " (11x11 - vai a 3)"}
             </p>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Coluna principal: quadra + historico */}
         <section className="space-y-6">
-          {/* Quadra */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Quadra</CardTitle>
-              <div className="flex gap-2">
+            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
+              <CardTitle>
+                Quadra
+                {matchOn && (
+                  <span className="ml-2 text-xs font-normal text-muted-foreground">
+                    alvo: {target} pts
+                  </span>
+                )}
+              </CardTitle>
+              <div className="flex gap-2 flex-wrap">
                 {!(state.teamA && state.teamB) && (
                   <Button size="sm" onClick={startMatch}>
                     <Shuffle className="size-4 mr-1" /> Montar times
+                  </Button>
+                )}
+                {matchOn && (state.scoreA > 0 || state.scoreB > 0) && (
+                  <Button size="sm" variant="ghost" onClick={resetScores}>
+                    Zerar placar
                   </Button>
                 )}
                 {(state.teamA || state.teamB) && (
@@ -247,21 +323,28 @@ function Index() {
               <TeamCard
                 label="Time A"
                 team={state.teamA}
+                score={state.scoreA}
+                target={target}
                 onWin={() => declareWinner("A")}
-                canDeclare={!!(state.teamA && state.teamB)}
+                onInc={() => changeScore("A", +1)}
+                onDec={() => changeScore("A", -1)}
+                canDeclare={matchOn}
                 onPlayerLeave={(id) => removePlayer(id)}
               />
               <TeamCard
                 label="Time B"
                 team={state.teamB}
+                score={state.scoreB}
+                target={target}
                 onWin={() => declareWinner("B")}
-                canDeclare={!!(state.teamA && state.teamB)}
+                onInc={() => changeScore("B", +1)}
+                onDec={() => changeScore("B", -1)}
+                canDeclare={matchOn}
                 onPlayerLeave={(id) => removePlayer(id)}
               />
             </CardContent>
           </Card>
 
-          {/* Fila */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>Fila ({queuePlayers.length})</CardTitle>
@@ -302,7 +385,6 @@ function Index() {
             </CardContent>
           </Card>
 
-          {/* Historico */}
           {state.history.length > 0 && (
             <Card>
               <CardHeader>
@@ -312,9 +394,12 @@ function Index() {
                 {state.history.map((h, i) => (
                   <div
                     key={i}
-                    className="text-sm flex flex-wrap gap-x-2 gap-y-1 border-b last:border-0 pb-2 last:pb-0"
+                    className="text-sm flex flex-wrap items-center gap-x-2 gap-y-1 border-b last:border-0 pb-2 last:pb-0"
                   >
                     <Trophy className="size-4 text-yellow-500" />
+                    <Badge variant="secondary">
+                      {h.scoreWin} x {h.scoreLose}
+                    </Badge>
                     <span className="font-medium">
                       {h.winnerNames.join(", ")}
                     </span>
@@ -327,7 +412,6 @@ function Index() {
           )}
         </section>
 
-        {/* Coluna lateral: cadastro */}
         <aside className="space-y-6">
           <Card>
             <CardHeader>
@@ -437,26 +521,67 @@ function GenderBadge({ g }: { g: Gender }) {
 function TeamCard({
   label,
   team,
+  score,
+  target,
   onWin,
+  onInc,
+  onDec,
   canDeclare,
   onPlayerLeave,
 }: {
   label: string;
   team: Team | null;
+  score: number;
+  target: number;
   onWin: () => void;
+  onInc: () => void;
+  onDec: () => void;
   canDeclare: boolean;
   onPlayerLeave: (id: string) => void;
 }) {
+  const matchPoint = canDeclare && score === target - 1;
   return (
     <div className="rounded-lg border p-4 space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <h3 className="font-semibold">{label}</h3>
         {team && canDeclare && (
-          <Button size="sm" onClick={onWin}>
+          <Button size="sm" variant="outline" onClick={onWin}>
             <Trophy className="size-4 mr-1" /> Venceu
           </Button>
         )}
       </div>
+
+      {team && canDeclare && (
+        <div className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
+          <Button
+            size="icon"
+            variant="outline"
+            onClick={onDec}
+            disabled={score <= 0}
+            aria-label="Diminuir ponto"
+          >
+            <Minus className="size-4" />
+          </Button>
+          <div className="text-center">
+            <div className="text-4xl font-bold leading-none tabular-nums">
+              {score}
+            </div>
+            {matchPoint && (
+              <div className="text-[10px] uppercase tracking-wide text-yellow-600 dark:text-yellow-400 mt-1">
+                match point
+              </div>
+            )}
+          </div>
+          <Button
+            size="icon"
+            onClick={onInc}
+            aria-label="Adicionar ponto"
+          >
+            <Plus className="size-4" />
+          </Button>
+        </div>
+      )}
+
       {!team ? (
         <p className="text-sm text-muted-foreground">
           Sem time. Clique em "Montar times".
@@ -464,7 +589,10 @@ function TeamCard({
       ) : (
         <ul className="space-y-1">
           {team.players.map((p) => (
-            <li key={p.id} className="flex items-center justify-between text-sm">
+            <li
+              key={p.id}
+              className="flex items-center justify-between text-sm"
+            >
               <span className="flex items-center gap-2">
                 <span className="font-medium">{p.name}</span>
                 <GenderBadge g={p.gender} />
