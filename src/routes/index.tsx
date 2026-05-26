@@ -12,6 +12,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
   Trash2,
   Trophy,
   Shuffle,
@@ -20,6 +29,8 @@ import {
   LogOut,
   Minus,
   Plus,
+  Undo2,
+  TrashIcon,
 } from "lucide-react";
 import {
   buildTeam,
@@ -33,12 +44,17 @@ import {
   type State,
   type Team,
 } from "@/lib/volei";
+import { NextTeamPreview } from "@/components/NextTeamPreview";
+import { loadStateFn, saveStateFn } from "@/lib/api";
 
 export const Route = createFileRoute("/")({
   component: Index,
 });
 
 function Index() {
+  // Usa uma sala padrão fixa para todos
+  const [roomId] = useState<string>("default-room");
+
   const [state, setState] = useState<State>(() => ({
     players: [],
     queue: [],
@@ -46,21 +62,45 @@ function Index() {
     teamB: null,
     scoreA: 0,
     scoreB: 0,
+    maxConsecutiveWins: 3,
+    currentWinStreak: 0,
+    championTeamId: null,
     history: [],
   }));
   const [hydrated, setHydrated] = useState(false);
+  const [showWinConfirmation, setShowWinConfirmation] = useState<"A" | "B" | null>(null);
 
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender>("M");
 
+  // Carrega estado do banco
   useEffect(() => {
-    setState(loadState());
-    setHydrated(true);
-  }, []);
+    loadStateFn(roomId)
+      .then((roomState: State) => {
+        setState(roomState);
+        setHydrated(true);
+      })
+      .catch((err: unknown) => {
+        console.error("Erro ao carregar estado:", err);
+        // Se der erro, carrega do localStorage como fallback
+        setState(loadState());
+        setHydrated(true);
+      });
+  }, [roomId]);
 
+  // Salva estado no banco
   useEffect(() => {
-    if (hydrated) saveState(state);
-  }, [state, hydrated]);
+    if (!hydrated) return;
+
+    // Salva no banco (debounce para evitar muitas chamadas)
+    const timer = setTimeout(() => {
+      saveStateFn(roomId, state).catch((err: unknown) => {
+        console.error("Erro ao salvar estado:", err);
+      });
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [state, hydrated, roomId]);
 
   const byId = useMemo(() => {
     const m: Record<string, Player> = {};
@@ -159,11 +199,12 @@ function Index() {
       }
       if (!teamB) {
         const r = pickTeam(queue, byId);
-        if (!r) return { ...s, teamA, queue, scoreA: 0, scoreB: 0 };
+        if (!r) return { ...s, teamA, queue, scoreA: 0, scoreB: 0, currentWinStreak: 0, championTeamId: null };
         teamB = buildTeam(r.teamIds, byId);
         queue = r.rest;
       }
-      return { ...s, teamA, teamB, queue, scoreA: 0, scoreB: 0 };
+      // Reseta contador e campeão quando monta novos times
+      return { ...s, teamA, teamB, queue, scoreA: 0, scoreB: 0, currentWinStreak: 0, championTeamId: null };
     });
   }
 
@@ -174,11 +215,31 @@ function Index() {
       const scoreB = team === "B" ? Math.max(0, s.scoreB + delta) : s.scoreB;
       const tgt = currentTarget(scoreA, scoreB);
 
-      // auto-declara vencedor ao atingir o alvo
+      // Ao atingir o alvo, mostra confirmação ao invés de finalizar automático
       if (scoreA >= tgt || scoreB >= tgt) {
-        return finishMatch(s, scoreA >= tgt ? "A" : "B", scoreA, scoreB);
+        const winner = scoreA >= tgt ? "A" : "B";
+        setShowWinConfirmation(winner);
+        return { ...s, scoreA, scoreB };
       }
       return { ...s, scoreA, scoreB };
+    });
+  }
+
+  function confirmWin(winner: "A" | "B") {
+    setState((s) => finishMatch(s, winner, s.scoreA, s.scoreB));
+    setShowWinConfirmation(null);
+  }
+
+  function cancelWin() {
+    setShowWinConfirmation(null);
+    // Decrementa 1 ponto do time que estava ganhando
+    setState((s) => {
+      if (showWinConfirmation === "A") {
+        return { ...s, scoreA: Math.max(0, s.scoreA - 1) };
+      } else if (showWinConfirmation === "B") {
+        return { ...s, scoreB: Math.max(0, s.scoreB - 1) };
+      }
+      return s;
     });
   }
 
@@ -189,38 +250,129 @@ function Index() {
     scoreB: number,
   ): State {
     if (!s.teamA || !s.teamB) return s;
-    const win = winner === "A" ? s.teamA : s.teamB;
-    const lose = winner === "A" ? s.teamB : s.teamA;
+
+    // Salva estado atual para desfazer
+    const lastState = { ...s, lastState: undefined };
+
+    const winTeam = winner === "A" ? s.teamA : s.teamB;
+    const loseTeam = winner === "A" ? s.teamB : s.teamA;
     const scoreWin = winner === "A" ? scoreA : scoreB;
     const scoreLose = winner === "A" ? scoreB : scoreA;
 
-    const newQueue = [...s.queue, ...lose.players.map((p) => p.id)];
-    const r = pickTeam(newQueue, byId);
-    const newChallenger: Team | null = r ? buildTeam(r.teamIds, byId) : null;
-    const restQueue = r ? r.rest : newQueue;
+    // Verifica se o time perdedor era o campeão
+    const championLost = s.championTeamId === loseTeam.id;
+    const championWon = s.championTeamId === winTeam.id;
+
+    let newQueue: string[];
+    let newTeamA: Team | null;
+    let newTeamB: Team | null;
+    let newChampionId: string | null;
+    let newMatchCount: number;
+
+    if (championLost && s.currentWinStreak >= s.maxConsecutiveWins) {
+      // Campeão perdeu E já jogou X partidas -> AMBOS vão para a fila
+      newQueue = [...s.queue, ...loseTeam.players.map((p) => p.id), ...winTeam.players.map((p) => p.id)];
+
+      // Monta dois novos times da fila
+      const r1 = pickTeam(newQueue, byId);
+      if (!r1) {
+        newTeamA = null;
+        newTeamB = null;
+      } else {
+        newTeamA = buildTeam(r1.teamIds, byId);
+        const r2 = pickTeam(r1.rest, byId);
+        if (!r2) {
+          newTeamB = null;
+          newQueue = r1.rest;
+        } else {
+          newTeamB = buildTeam(r2.teamIds, byId);
+          newQueue = r2.rest;
+        }
+      }
+      newChampionId = null;
+      newMatchCount = 0;
+    } else {
+      // Fluxo normal: perdedor vai pra fila, vencedor permanece
+      newQueue = [...s.queue, ...loseTeam.players.map((p) => p.id)];
+
+      const r = pickTeam(newQueue, byId);
+      const newChallenger = r ? buildTeam(r.teamIds, byId) : null;
+      newQueue = r ? r.rest : newQueue;
+
+      newTeamA = winner === "A" ? winTeam : newChallenger;
+      newTeamB = winner === "B" ? winTeam : newChallenger;
+
+      // Atualiza campeão e contador
+      if (championWon) {
+        // Campeão venceu novamente - incrementa contador
+        newChampionId = winTeam.id;
+        newMatchCount = s.currentWinStreak + 1;
+      } else {
+        // Novo campeão (vencedor não era o campeão anterior)
+        newChampionId = winTeam.id;
+        newMatchCount = 1;
+      }
+    }
 
     return {
       ...s,
-      teamA: winner === "A" ? win : newChallenger,
-      teamB: winner === "B" ? win : newChallenger,
-      queue: restQueue,
+      teamA: newTeamA,
+      teamB: newTeamB,
+      queue: newQueue,
       scoreA: 0,
       scoreB: 0,
+      currentWinStreak: newMatchCount,
+      championTeamId: newChampionId,
       history: [
         {
-          winnerNames: win.players.map((p) => p.name),
-          loserNames: lose.players.map((p) => p.name),
+          winnerNames: winTeam.players.map((p) => p.name),
+          loserNames: loseTeam.players.map((p) => p.name),
           scoreWin,
           scoreLose,
           at: Date.now(),
         },
         ...s.history,
       ].slice(0, 30),
+      lastState,
     };
   }
 
   function declareWinner(winner: "A" | "B") {
     setState((s) => finishMatch(s, winner, s.scoreA, s.scoreB));
+  }
+
+  function undoLastMatch() {
+    setState((s) => {
+      if (s.lastState) {
+        return s.lastState;
+      }
+      return s;
+    });
+  }
+
+  function changeMaxWins(value: number) {
+    setState((s) => ({
+      ...s,
+      maxConsecutiveWins: Math.max(1, Math.min(10, value)), // entre 1 e 10
+    }));
+  }
+
+  function clearAll() {
+    if (window.confirm("Tem certeza que deseja limpar TUDO? Isso apagará jogadores, histórico e partida atual.")) {
+      console.log("Limpando tudo...");
+      setState((s) => ({
+        players: [],
+        queue: [],
+        teamA: null,
+        teamB: null,
+        scoreA: 0,
+        scoreB: 0,
+        maxConsecutiveWins: s.maxConsecutiveWins,
+        currentWinStreak: 0,
+        championTeamId: null,
+        history: [],
+      }));
+    }
   }
 
   function resetCourt() {
@@ -234,6 +386,8 @@ function Index() {
         teamB: null,
         scoreA: 0,
         scoreB: 0,
+        currentWinStreak: 0,
+        championTeamId: null,
         queue: [...s.queue, ...ids],
       };
     });
@@ -260,6 +414,8 @@ function Index() {
         teamB: null,
         scoreA: 0,
         scoreB: 0,
+        currentWinStreak: 0,
+        championTeamId: null,
         queue: all,
       };
     });
@@ -270,21 +426,44 @@ function Index() {
     (p) => !state.queue.includes(p.id) && !inCourt.has(p.id),
   );
 
+  // Calcula o próximo time da fila
+  const nextTeamPreview = useMemo(() => {
+    const r = pickTeam(state.queue, byId);
+    return r ? r.teamIds.map((id) => byId[id]).filter(Boolean) : [];
+  }, [state.queue, byId]);
+
   const matchOn = !!(state.teamA && state.teamB);
   const tiebreak = state.scoreA >= 11 && state.scoreB >= 11;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b">
-        <div className="mx-auto max-w-6xl px-4 py-5 flex items-center justify-between">
+        <div className="mx-auto max-w-6xl px-4 py-5 flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">
-              Volei da Galera
+              Vôlei dos amigos 🏐
             </h1>
             <p className="text-sm text-muted-foreground">
-              Times de 4 · 1 mulher por time · jogo ate {target}
+              Times de 4 · até 2 mulheres por time · jogo ate {target}
               {tiebreak && " (11x11 - vai a 3)"}
             </p>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={undoLastMatch}
+              disabled={!state.lastState}
+            >
+              <Undo2 className="size-4 mr-1" /> Desfazer
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={clearAll}
+            >
+              <TrashIcon className="size-4 mr-1" /> Limpar Tudo
+            </Button>
           </div>
         </div>
       </header>
@@ -330,6 +509,8 @@ function Index() {
                 onDec={() => changeScore("A", -1)}
                 canDeclare={matchOn}
                 onPlayerLeave={(id) => removePlayer(id)}
+                isChampion={state.teamA?.id === state.championTeamId}
+                matchCount={state.teamA?.id === state.championTeamId ? state.currentWinStreak : 0}
               />
               <TeamCard
                 label="Time B"
@@ -341,9 +522,13 @@ function Index() {
                 onDec={() => changeScore("B", -1)}
                 canDeclare={matchOn}
                 onPlayerLeave={(id) => removePlayer(id)}
+                isChampion={state.teamB?.id === state.championTeamId}
+                matchCount={state.teamB?.id === state.championTeamId ? state.currentWinStreak : 0}
               />
             </CardContent>
           </Card>
+
+          <NextTeamPreview players={nextTeamPreview} />
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -413,6 +598,41 @@ function Index() {
         </section>
 
         <aside className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Configurações</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="maxWins" className="text-sm font-medium">
+                  Permanência dos times
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="maxWins"
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={state.maxConsecutiveWins}
+                    onChange={(e) => changeMaxWins(parseInt(e.target.value) || 1)}
+                    className="w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    partidas
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Time vencedor permanece até perder. Quando perder após X partidas, ambos os times são remontados
+                </p>
+                {state.currentWinStreak > 0 && state.championTeamId && (
+                  <p className="text-xs text-muted-foreground font-medium">
+                    Partidas jogadas pelo time campeão: {state.currentWinStreak}/{state.maxConsecutiveWins}
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Adicionar jogador</CardTitle>
@@ -499,6 +719,26 @@ function Index() {
           </Card>
         </aside>
       </main>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={!!showWinConfirmation} onOpenChange={(open) => !open && cancelWin()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Partida Finalizada!</DialogTitle>
+            <DialogDescription>
+              Time {showWinConfirmation} atingiu {target} pontos. Deseja confirmar a vitória e iniciar o próximo jogo?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={cancelWin}>
+              Cancelar
+            </Button>
+            <Button onClick={() => showWinConfirmation && confirmWin(showWinConfirmation)}>
+              Confirmar Vitória
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -528,6 +768,8 @@ function TeamCard({
   onDec,
   canDeclare,
   onPlayerLeave,
+  isChampion,
+  matchCount,
 }: {
   label: string;
   team: Team | null;
@@ -538,12 +780,21 @@ function TeamCard({
   onDec: () => void;
   canDeclare: boolean;
   onPlayerLeave: (id: string) => void;
+  isChampion: boolean;
+  matchCount: number;
 }) {
   const matchPoint = canDeclare && score === target - 1;
   return (
     <div className="rounded-lg border p-4 space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="font-semibold">{label}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="font-semibold">{label}</h3>
+          {isChampion && matchCount > 0 && (
+            <Badge variant="secondary" className="text-[10px]">
+              🏆 {matchCount}x
+            </Badge>
+          )}
+        </div>
         {team && canDeclare && (
           <Button size="sm" variant="outline" onClick={onWin}>
             <Trophy className="size-4 mr-1" /> Venceu

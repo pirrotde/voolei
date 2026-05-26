@@ -18,6 +18,9 @@ export type State = {
   teamB: Team | null;
   scoreA: number;
   scoreB: number;
+  maxConsecutiveWins: number; // quantas partidas o time atual pode jogar antes de ser forçado a sair quando perder
+  currentWinStreak: number; // partidas jogadas pelo time que está vencendo atualmente
+  championTeamId: string | null; // ID do time que está vencendo (permanece até perder)
   history: {
     winnerNames: string[];
     loserNames: string[];
@@ -25,6 +28,7 @@ export type State = {
     scoreLose: number;
     at: number;
   }[];
+  lastState?: State; // para desfazer última ação
 };
 
 export const STORAGE_KEY = "volei-galera-state-v2";
@@ -47,6 +51,9 @@ function emptyState(): State {
     teamB: null,
     scoreA: 0,
     scoreB: 0,
+    maxConsecutiveWins: 3, // padrão: 3 partidas seguidas
+    currentWinStreak: 0,
+    championTeamId: null,
     history: [],
   };
 }
@@ -73,8 +80,10 @@ export function uid() {
 }
 
 /**
- * Monta um time de 4 a partir da fila, garantindo (se possível) 1 mulher.
- * Retorna os ids selecionados e a fila restante (mantendo a ordem dos demais).
+ * Monta um time de 4 a partir da fila, com balanceamento de gênero:
+ * - Se houver 1 mulher disponível: garante 1 mulher no time
+ * - Se houver 2+ mulheres disponíveis: permite até 2 mulheres no time
+ * - Completa o resto com os próximos da fila na ordem
  */
 export function pickTeam(
   queueIds: string[],
@@ -85,13 +94,29 @@ export function pickTeam(
   const picked: string[] = [];
   const remaining = [...queueIds];
 
-  // 1) tenta pegar a primeira mulher da fila
-  const firstFemaleIdx = remaining.findIndex((id) => byId[id]?.gender === "F");
-  if (firstFemaleIdx !== -1) {
-    picked.push(remaining.splice(firstFemaleIdx, 1)[0]);
-  }
+  // Conta quantas mulheres estão na fila
+  const femaleCount = remaining.filter((id) => byId[id]?.gender === "F").length;
 
-  // 2) completa com os próximos da fila na ordem
+  if (femaleCount >= 2) {
+    // Se tem 2 ou mais mulheres, pega até 2 mulheres
+    let femalesAdded = 0;
+    for (let i = 0; i < remaining.length && femalesAdded < 2; i++) {
+      if (byId[remaining[i]]?.gender === "F") {
+        picked.push(remaining.splice(i, 1)[0]);
+        femalesAdded++;
+        i--; // Ajusta índice após remoção
+      }
+    }
+  } else if (femaleCount === 1) {
+    // Se tem exatamente 1 mulher, garante ela no time
+    const femaleIdx = remaining.findIndex((id) => byId[id]?.gender === "F");
+    if (femaleIdx !== -1) {
+      picked.push(remaining.splice(femaleIdx, 1)[0]);
+    }
+  }
+  // Se não tem mulheres (femaleCount === 0), não faz nada e pega os próximos da fila
+
+  // Completa com os próximos da fila na ordem até ter 4 jogadores
   while (picked.length < 4 && remaining.length > 0) {
     picked.push(remaining.shift()!);
   }
