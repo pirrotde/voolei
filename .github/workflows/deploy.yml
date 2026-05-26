@@ -25,12 +25,16 @@ jobs:
 
       - name: Create Deployment Package
         run: |
+          # Empacotar todo o projeto (exceto node_modules, .git, etc via .dockerignore)
           tar -czf volei-deploy.tar.gz \
-            docker-compose.remote-db.yml \
-            Dockerfile \
-            .dockerignore \
-            package.json \
-            package-lock.json
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.vinxi' \
+            --exclude='.output' \
+            --exclude='dist' \
+            --exclude='*.log' \
+            --exclude='.env.local' \
+            .
 
       - name: Deploy via SSH
         env:
@@ -53,9 +57,14 @@ jobs:
           # Enviar arquivos
           sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no -P $SSH_PORT volei-deploy.tar.gz $SSH_USER@$SSH_HOST:${{ env.DEPLOY_PATH }}/
 
-          # Extrair
+          # Extrair e organizar
           sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST "
             cd ${{ env.DEPLOY_PATH }}
+
+            # Limpar diretório (exceto .env)
+            find . -mindepth 1 -maxdepth 1 ! -name '.env' ! -name '.env.backup' ! -name 'volei-deploy.tar.gz' -exec rm -rf {} +
+
+            # Extrair novos arquivos
             tar -xzf volei-deploy.tar.gz
             rm volei-deploy.tar.gz
 
@@ -65,7 +74,7 @@ jobs:
               echo '.env restaurado'
             fi
 
-            echo 'Arquivos extraídos'
+            echo 'Arquivos extraídos e organizados'
           "
 
       - name: Deploy Application
