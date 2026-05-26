@@ -22,6 +22,7 @@ services:
       - "3001:3001"
     networks:
       - volei-network
+      - Infra  # Rede da infraestrutura (nginx-proxy, cloudflare-dns, etc)
     env_file:
       - .env
 
@@ -33,14 +34,35 @@ services:
     restart: unless-stopped
     command: npm run dev
     environment:
+      # API URL
       VITE_API_URL: http://localhost:3001
+
+      # Proxy Reverso (nginx-proxy-automation) - Detectado automaticamente
+      VIRTUAL_HOST: ${VOLEI_DOMAIN}
+      VIRTUAL_PORT: 8080
+
+      # SSL (Let's Encrypt) - Gerado automaticamente pelo nginx-proxy
+      LETSENCRYPT_HOST: ${VOLEI_DOMAIN}
+      LETSENCRYPT_EMAIL: ${DEFAULT_EMAIL}
+
+      # Cloudflare DNS Manager - Cria DNS A automaticamente
+      CLOUDFLARE_AUTO_DNS: "true"
+      CLOUDFLARE_PROXIED: "true"
     ports:
       - "8080:8080"
     depends_on:
       - api
     networks:
       - volei-network
+      - Infra  # Rede da infraestrutura (nginx-proxy, cloudflare-dns, etc)
+    labels:
+      # Labels para nginx-proxy encontrar o container
+      - "com.github.nginx-proxy.nginx-proxy.enable=true"
 
 networks:
   volei-network:
     driver: bridge
+
+  # Rede da infraestrutura (externa)
+  Infra:
+    external: true
