@@ -34,6 +34,7 @@ jobs:
             --exclude='dist' \
             --exclude='*.log' \
             --exclude='.env.local' \
+            --exclude='volei-deploy.tar.gz' \
             .
 
       - name: Deploy via SSH
