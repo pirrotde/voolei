@@ -16,20 +16,50 @@ export type State = {
   queue: string[]; // ids na ordem da fila
   teamA: Team | null;
   teamB: Team | null;
-  history: { winnerNames: string[]; loserNames: string[]; at: number }[];
+  scoreA: number;
+  scoreB: number;
+  history: {
+    winnerNames: string[];
+    loserNames: string[];
+    scoreWin: number;
+    scoreLose: number;
+    at: number;
+  }[];
 };
 
-export const STORAGE_KEY = "volei-galera-state-v1";
+export const STORAGE_KEY = "volei-galera-state-v2";
+
+// Regras de pontuação: vai até 12; se empatar em 11x11, vai a 3 direto (alvo 14).
+export const BASE_TARGET = 12;
+export const TIE_POINT = 11;
+export const TIE_TARGET = TIE_POINT + 3; // 14
+
+export function currentTarget(a: number, b: number): number {
+  if (a >= TIE_POINT && b >= TIE_POINT) return TIE_TARGET;
+  return BASE_TARGET;
+}
+
+function emptyState(): State {
+  return {
+    players: [],
+    queue: [],
+    teamA: null,
+    teamB: null,
+    scoreA: 0,
+    scoreB: 0,
+    history: [],
+  };
+}
 
 export function loadState(): State {
-  if (typeof window === "undefined")
-    return { players: [], queue: [], teamA: null, teamB: null, history: [] };
+  if (typeof window === "undefined") return emptyState();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) throw new Error("empty");
-    return JSON.parse(raw) as State;
+    const parsed = JSON.parse(raw) as Partial<State>;
+    return { ...emptyState(), ...parsed };
   } catch {
-    return { players: [], queue: [], teamA: null, teamB: null, history: [] };
+    return emptyState();
   }
 }
 
