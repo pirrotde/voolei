@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Trophy, Shuffle, UserPlus, RotateCcw } from "lucide-react";
+import { Trash2, Trophy, Shuffle, UserPlus, RotateCcw, LogOut } from "lucide-react";
 import {
   buildTeam,
   loadState,
