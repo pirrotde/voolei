@@ -76,17 +76,43 @@ function Index() {
   }
 
   function removePlayer(id: string) {
-    setState((s) => ({
-      ...s,
-      players: s.players.filter((p) => p.id !== id),
-      queue: s.queue.filter((q) => q !== id),
-      teamA: s.teamA
-        ? { ...s.teamA, players: s.teamA.players.filter((p) => p.id !== id) }
-        : null,
-      teamB: s.teamB
-        ? { ...s.teamB, players: s.teamB.players.filter((p) => p.id !== id) }
-        : null,
-    }));
+    setState((s) => {
+      const newPlayers = s.players.filter((p) => p.id !== id);
+      const newQueue = s.queue.filter((q) => q !== id);
+
+      const inTeamA = s.teamA?.players.some((p) => p.id === id);
+      const inTeamB = s.teamB?.players.some((p) => p.id === id);
+
+      // Se não está em quadra, só remove
+      if (!inTeamA && !inTeamB) {
+        return { ...s, players: newPlayers, queue: newQueue };
+      }
+
+      // Se está em quadra, dissolve o time dele e recoloca os colegas na fila
+      let returningIds: string[] = [];
+      let teamA = s.teamA;
+      let teamB = s.teamB;
+
+      if (inTeamA && teamA) {
+        returningIds = teamA.players
+          .filter((p) => p.id !== id)
+          .map((p) => p.id);
+        teamA = null;
+      } else if (inTeamB && teamB) {
+        returningIds = teamB.players
+          .filter((p) => p.id !== id)
+          .map((p) => p.id);
+        teamB = null;
+      }
+
+      return {
+        ...s,
+        players: newPlayers,
+        queue: [...newQueue, ...returningIds],
+        teamA,
+        teamB,
+      };
+    });
   }
 
   function toggleInQueue(id: string) {
