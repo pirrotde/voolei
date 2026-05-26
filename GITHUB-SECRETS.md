@@ -25,19 +25,17 @@ Este documento lista todos os secrets necessários para configurar o deploy auto
 | `VOLEI_DOMAIN` | Domínio da aplicação | `volei.example.com` |
 | `DEFAULT_EMAIL` | Email para certificado SSL | `admin@example.com` |
 
-### Banco de Dados
+### Banco de Dados REMOTO
 | Nome | Descrição | Exemplo |
 |------|-----------|---------|
-| `MYSQL_ROOT_PASSWORD` | Senha root do MariaDB | `rootpassword_123` |
-| `MYSQL_DATABASE` | Nome do banco de dados | `volei` |
-| `MYSQL_USER` | Usuário do banco | `volei` |
-| `MYSQL_PASSWORD` | Senha do usuário | `volei2025` |
+| `DB_HOST` | Host/IP do banco remoto | `207.58.175.4` |
+| `DB_PORT` | Porta do banco remoto | `3306` |
+| `DB_USER` | Usuário do banco | `volei` |
+| `DB_PASSWORD` | Senha do usuário | `volei2025` |
+| `DB_NAME` | Nome do banco de dados | `volei` |
 
-### Configurações Opcionais
-| Nome | Descrição | Padrão |
-|------|-----------|--------|
-| `DB_HOST` | Host do banco (dentro do Docker) | `db` |
-| `DB_PORT` | Porta do banco | `3306` |
+**⚠️ IMPORTANTE**: Esta pipeline usa um banco de dados REMOTO existente.
+Não é criado nenhum container de banco no servidor.
 
 ## Exemplo de Configuração
 
@@ -52,15 +50,12 @@ SSH_PORT=22
 VOLEI_DOMAIN=volei.proativeinfra.com.br
 DEFAULT_EMAIL=admin@proativeinfra.com.br
 
-# Database
-MYSQL_ROOT_PASSWORD=root_password_super_secret
-MYSQL_DATABASE=volei
-MYSQL_USER=volei
-MYSQL_PASSWORD=volei2025
-
-# Opcional (use os padrões se não configurar)
-DB_HOST=db
+# Database Remoto (OBRIGATÓRIO)
+DB_HOST=207.58.175.4
 DB_PORT=3306
+DB_USER=volei
+DB_PASSWORD=volei2025
+DB_NAME=volei
 ```
 
 ## Workflow do Deploy
@@ -72,12 +67,12 @@ O deploy é acionado automaticamente quando você:
 ## Passo a Passo do Deploy
 
 1. **Checkout do código** - Baixa o código do repositório
-2. **Cria pacote de deploy** - Empacota arquivos necessários
+2. **Cria pacote de deploy** - Empacota `docker-compose.remote-db.yml`, Dockerfile, etc
 3. **Envia via SSH** - Transfere arquivos para o servidor
-4. **Cria arquivo .env** - Configura variáveis de ambiente
-5. **Build das imagens** - Constrói containers Docker
-6. **Sobe os serviços** - Inicia Database, API e Frontend
-7. **Health check** - Verifica se tudo está funcionando
+4. **Cria arquivo .env** - Configura variáveis de ambiente com credenciais do banco remoto
+5. **Build das imagens** - Constrói containers Docker (apenas API e Frontend)
+6. **Sobe os serviços** - Inicia API e Frontend (conectam ao banco remoto)
+7. **Health check** - Verifica se API e Frontend estão funcionando
 
 ## Estrutura no Servidor
 
@@ -94,12 +89,34 @@ Após o deploy, a aplicação estará em:
 └── (outros arquivos do projeto)
 ```
 
-## Portas Expostas
+## Arquitetura do Deploy
+
+```
+┌─────────────────────────────────────────┐
+│  Servidor de Deploy                     │
+│  ┌──────────────┐   ┌──────────────┐   │
+│  │   Frontend   │   │     API      │───┼─┐
+│  │  (Vite)      │   │  (Express)   │   │ │
+│  │  Porta 8080  │   │  Porta 3001  │   │ │
+│  └──────────────┘   └──────────────┘   │ │
+└─────────────────────────────────────────┘ │
+                                            │
+                                            │ Conexão TCP
+                                            ▼
+                    ┌────────────────────────────────┐
+                    │  Servidor de Banco (Remoto)    │
+                    │  ┌─────────────────────────┐   │
+                    │  │  MariaDB 11             │   │
+                    │  │  207.58.175.4:3306      │   │
+                    │  └─────────────────────────┘   │
+                    └────────────────────────────────┘
+```
+
+## Portas Expostas no Servidor de Deploy
 
 | Serviço | Porta | Descrição |
 |---------|-------|-----------|
-| MariaDB | 3306 | Banco de dados |
-| API | 3001 | Backend Express |
+| API | 3001 | Backend Express (conecta ao banco remoto) |
 | Frontend | 8080 | Interface Vite |
 
 ## Comandos Úteis no Servidor
@@ -131,22 +148,17 @@ docker-compose -p volei logs -f
 2. Confira os logs em: **Actions** > Último workflow executado
 3. Teste a conexão SSH manualmente
 
-### Database não inicia
-```bash
-# Ver logs detalhados
-docker logs volei-db --tail=100
-
-# Verificar health check
-docker inspect volei-db | grep -A 10 Health
-```
-
-### API não conecta ao banco
+### API não conecta ao banco remoto
 ```bash
 # Verificar variáveis de ambiente da API
 docker exec volei-api env | grep DB_
 
-# Testar conexão ao banco
-docker exec volei-db mysqladmin ping -h localhost
+# Testar conexão ao banco remoto do servidor
+ping 207.58.175.4
+telnet 207.58.175.4 3306
+
+# Verificar logs da API
+docker logs volei-api --tail=50
 ```
 
 ### Frontend não carrega

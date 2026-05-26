@@ -1,9 +1,12 @@
-version: '3.8'
+# Docker Compose com banco de dados local
+# Use este arquivo para desenvolvimento isolado com banco local
+# Se você JÁ TEM um banco remoto, use: docker-compose -f docker-compose.remote-db.yml up -d
 
 services:
-  # Banco de dados MariaDB
+  # Banco de dados MariaDB (LOCAL - apenas para desenvolvimento isolado)
   db:
     image: mariadb:11
+    platform: linux/amd64
     container_name: volei-db
     restart: unless-stopped
     environment:
@@ -27,6 +30,7 @@ services:
   # API Server (Express)
   api:
     build: .
+    platform: linux/amd64
     container_name: volei-api
     restart: unless-stopped
     command: npm run api
@@ -39,9 +43,6 @@ services:
       API_PORT: 3001
     ports:
       - "3001:3001"
-    volumes:
-      - .:/app
-      - /app/node_modules
     depends_on:
       db:
         condition: service_healthy
@@ -51,6 +52,7 @@ services:
   # Frontend (Vite)
   frontend:
     build: .
+    platform: linux/amd64
     container_name: volei-frontend
     restart: unless-stopped
     command: npm run dev
@@ -58,9 +60,6 @@ services:
       VITE_API_URL: http://localhost:3001
     ports:
       - "8080:8080"
-    volumes:
-      - .:/app
-      - /app/node_modules
     depends_on:
       - api
     networks:

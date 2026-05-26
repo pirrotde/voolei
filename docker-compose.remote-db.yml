@@ -1,0 +1,46 @@
+# Docker Compose para usar banco de dados remoto existente
+# Use este arquivo quando já tiver um banco MariaDB em produção
+# Comando: docker-compose -f docker-compose.remote-db.yml up -d
+
+services:
+  # API Server (Express)
+  api:
+    build: .
+    platform: linux/amd64
+    container_name: volei-api
+    restart: unless-stopped
+    command: npm run api
+    environment:
+      # Banco de dados REMOTO (configure no .env)
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      API_PORT: 3001
+    ports:
+      - "3001:3001"
+    networks:
+      - volei-network
+    env_file:
+      - .env
+
+  # Frontend (Vite)
+  frontend:
+    build: .
+    platform: linux/amd64
+    container_name: volei-frontend
+    restart: unless-stopped
+    command: npm run dev
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
+    networks:
+      - volei-network
+
+networks:
+  volei-network:
+    driver: bridge

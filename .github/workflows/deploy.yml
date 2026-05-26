@@ -26,10 +26,9 @@ jobs:
       - name: Create Deployment Package
         run: |
           tar -czf volei-deploy.tar.gz \
-            docker-compose.yml \
+            docker-compose.remote-db.yml \
             Dockerfile \
             .dockerignore \
-            schema.sql \
             package.json \
             package-lock.json
 
@@ -77,12 +76,11 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
           VOLEI_DOMAIN: ${{ secrets.VOLEI_DOMAIN }}
           DEFAULT_EMAIL: ${{ secrets.DEFAULT_EMAIL }}
-          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
-          MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-          MYSQL_USER: ${{ secrets.MYSQL_USER }}
-          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-          DB_HOST: ${{ secrets.DB_HOST || 'db' }}
+          DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT || '3306' }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
           sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST bash << EOF
             cd ${{ env.DEPLOY_PATH }}
@@ -93,18 +91,14 @@ jobs:
           VOLEI_DOMAIN=$VOLEI_DOMAIN
           DEFAULT_EMAIL=$DEFAULT_EMAIL
 
-          # Database
-          MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD
-          MYSQL_DATABASE=$MYSQL_DATABASE
-          MYSQL_USER=$MYSQL_USER
-          MYSQL_PASSWORD=$MYSQL_PASSWORD
-
-          # API Config
+          # Database Remoto
           DB_HOST=$DB_HOST
           DB_PORT=$DB_PORT
-          DB_USER=$MYSQL_USER
-          DB_PASSWORD=$MYSQL_PASSWORD
-          DB_NAME=$MYSQL_DATABASE
+          DB_USER=$DB_USER
+          DB_PASSWORD=$DB_PASSWORD
+          DB_NAME=$DB_NAME
+
+          # API Config
           API_PORT=3001
 
           # Frontend Config
@@ -114,12 +108,11 @@ jobs:
             # Substituir variáveis no .env
             sed -i "s|\\\$VOLEI_DOMAIN|$VOLEI_DOMAIN|g" .env
             sed -i "s|\\\$DEFAULT_EMAIL|$DEFAULT_EMAIL|g" .env
-            sed -i "s|\\\$MYSQL_ROOT_PASSWORD|$MYSQL_ROOT_PASSWORD|g" .env
-            sed -i "s|\\\$MYSQL_DATABASE|$MYSQL_DATABASE|g" .env
-            sed -i "s|\\\$MYSQL_USER|$MYSQL_USER|g" .env
-            sed -i "s|\\\$MYSQL_PASSWORD|$MYSQL_PASSWORD|g" .env
             sed -i "s|\\\$DB_HOST|$DB_HOST|g" .env
             sed -i "s|\\\$DB_PORT|$DB_PORT|g" .env
+            sed -i "s|\\\$DB_USER|$DB_USER|g" .env
+            sed -i "s|\\\$DB_PASSWORD|$DB_PASSWORD|g" .env
+            sed -i "s|\\\$DB_NAME|$DB_NAME|g" .env
 
             chmod 600 .env
 
@@ -127,23 +120,19 @@ jobs:
             sed 's/=.*/=***/' .env
 
             echo "Construindo imagens..."
-            docker-compose -p volei build --no-cache
+            docker-compose -f docker-compose.remote-db.yml -p volei build --no-cache
 
             echo "Parando containers antigos..."
-            docker-compose -p volei down 2>/dev/null || true
+            docker-compose -f docker-compose.remote-db.yml -p volei down 2>/dev/null || true
 
-            echo "Subindo serviços..."
-            docker-compose -p volei up -d
+            echo "Subindo serviços (API + Frontend - usando banco remoto)..."
+            docker-compose -f docker-compose.remote-db.yml -p volei up -d
 
-            echo "Aguardando inicialização (30s)..."
-            sleep 30
+            echo "Aguardando inicialização (20s)..."
+            sleep 20
 
             echo "Status dos containers:"
             docker ps --filter "name=volei" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-            echo ""
-            echo "Últimos logs do database:"
-            docker logs volei-db --tail=20
 
             echo ""
             echo "Últimos logs da API:"
@@ -168,22 +157,8 @@ jobs:
 
             echo "Verificando saúde dos serviços..."
             echo ""
-
-            # Verificar Database
-            if docker ps --filter "name=volei-db" --format "{{.Names}}" | grep -q volei-db; then
-              echo "[OK] Container Database está rodando"
-
-              # Testar conexão com o banco
-              if docker exec volei-db mysqladmin ping -h localhost 2>/dev/null | grep -q "alive"; then
-                echo "[OK] Database está respondendo"
-              else
-                echo "[AVISO] Database ainda não está respondendo"
-              fi
-            else
-              echo "[ERRO] Container Database NÃO está rodando"
-              docker logs volei-db --tail=30 2>&1 || echo "Não foi possível obter logs"
-              exit 1
-            fi
+            echo "[INFO] Usando banco de dados remoto: ${DB_HOST}:${DB_PORT}"
+            echo ""
 
             # Verificar API
             echo ""
@@ -250,8 +225,7 @@ jobs:
             echo "Email SSL: $DEFAULT_EMAIL"
             echo ""
             echo "Serviços deployados:"
-            echo "   - Database (MariaDB 11) - porta 3306"
-            echo "   - API (Express) - porta 3001"
+            echo "   - API (Express) - porta 3001 → conectado ao banco remoto"
             echo "   - Frontend (Vite) - porta 8080"
             echo ""
             echo "Aguarde 1-5 minutos para:"

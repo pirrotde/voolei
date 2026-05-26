@@ -1,8 +1,5 @@
 # Dockerfile para Vôlei dos amigos 🏐
-FROM node:20-alpine
-
-# Instalar dependências do sistema
-RUN apk add --no-cache python3 make g++
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -12,11 +9,11 @@ COPY package*.json ./
 # Instalar dependências
 RUN npm install
 
+# Forçar instalação do Rollup para Alpine Linux
+RUN npm install --force @rollup/rollup-linux-x64-musl || true
+
 # Copiar código fonte
 COPY . .
-
-# Build da aplicação
-RUN npm run build
 
 # Expor portas
 EXPOSE 8080 3001
