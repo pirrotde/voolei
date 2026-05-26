@@ -25,23 +25,18 @@ jobs:
 
       - name: Create Deployment Package
         run: |
-          # Obter nome do repositório
-          REPO_NAME=$(basename $GITHUB_REPOSITORY)
-
           # Empacotar todo o projeto (exceto node_modules, .git, etc)
-          # Criar tar fora do diretório para evitar "file changed as we read it"
-          cd ..
-          tar -czf volei-deploy.tar.gz \
-            --exclude="${REPO_NAME}/node_modules" \
-            --exclude="${REPO_NAME}/.git" \
-            --exclude="${REPO_NAME}/.vinxi" \
-            --exclude="${REPO_NAME}/.output" \
-            --exclude="${REPO_NAME}/dist" \
-            --exclude="${REPO_NAME}/*.log" \
-            --exclude="${REPO_NAME}/.env.local" \
-            "${REPO_NAME}"
-          mv volei-deploy.tar.gz "${REPO_NAME}/"
-          cd "${REPO_NAME}"
+          # Criar tar em /tmp para evitar "file changed as we read it"
+          tar -czf /tmp/volei-deploy.tar.gz \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.vinxi' \
+            --exclude='.output' \
+            --exclude='dist' \
+            --exclude='*.log' \
+            --exclude='.env.local' \
+            -C . .
+          mv /tmp/volei-deploy.tar.gz .
 
       - name: Deploy via SSH
         env:
