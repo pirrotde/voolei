@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Trash2, Trophy, Shuffle, UserPlus, RotateCcw } from "lucide-react";
+import { Trash2, Trophy, Shuffle, UserPlus, RotateCcw, LogOut } from "lucide-react";
 import {
   buildTeam,
   loadState,
@@ -76,17 +76,43 @@ function Index() {
   }
 
   function removePlayer(id: string) {
-    setState((s) => ({
-      ...s,
-      players: s.players.filter((p) => p.id !== id),
-      queue: s.queue.filter((q) => q !== id),
-      teamA: s.teamA
-        ? { ...s.teamA, players: s.teamA.players.filter((p) => p.id !== id) }
-        : null,
-      teamB: s.teamB
-        ? { ...s.teamB, players: s.teamB.players.filter((p) => p.id !== id) }
-        : null,
-    }));
+    setState((s) => {
+      const newPlayers = s.players.filter((p) => p.id !== id);
+      const newQueue = s.queue.filter((q) => q !== id);
+
+      const inTeamA = s.teamA?.players.some((p) => p.id === id);
+      const inTeamB = s.teamB?.players.some((p) => p.id === id);
+
+      // Se nao esta em quadra, so remove
+      if (!inTeamA && !inTeamB) {
+        return { ...s, players: newPlayers, queue: newQueue };
+      }
+
+      // Se esta em quadra, dissolve o time dele e recoloca os colegas na fila
+      let returningIds: string[] = [];
+      let teamA = s.teamA;
+      let teamB = s.teamB;
+
+      if (inTeamA && teamA) {
+        returningIds = teamA.players
+          .filter((p) => p.id !== id)
+          .map((p) => p.id);
+        teamA = null;
+      } else if (inTeamB && teamB) {
+        returningIds = teamB.players
+          .filter((p) => p.id !== id)
+          .map((p) => p.id);
+        teamB = null;
+      }
+
+      return {
+        ...s,
+        players: newPlayers,
+        queue: [...newQueue, ...returningIds],
+        teamA,
+        teamB,
+      };
+    });
   }
 
   function toggleInQueue(id: string) {
@@ -127,7 +153,7 @@ function Index() {
       const win = winner === "A" ? s.teamA : s.teamB;
       const lose = winner === "A" ? s.teamB : s.teamA;
 
-      // perdedores vão para o fim da fila (ordem mantida)
+      // perdedores vao para o fim da fila (ordem mantida)
       const newQueue = [...s.queue, ...lose.players.map((p) => p.id)];
 
       // monta novo time desafiante
@@ -168,7 +194,7 @@ function Index() {
         ...(s.teamB?.players.map((p) => p.id) ?? []),
         ...s.queue,
       ];
-      // embaralha mantendo mulheres distribuídas: simples shuffle
+      // embaralha mantendo mulheres distribuidas: simples shuffle
       for (let i = all.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [all[i], all[j]] = [all[j], all[i]];
@@ -188,17 +214,17 @@ function Index() {
         <div className="mx-auto max-w-6xl px-4 py-5 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold tracking-tight">
-              🏐 Vôlei da Galera
+              Volei da Galera
             </h1>
             <p className="text-sm text-muted-foreground">
-              Times de 4 · 1 mulher por time · rotação automática
+              Times de 4 · 1 mulher por time · rotacao automatica
             </p>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 grid gap-6 lg:grid-cols-[1fr_360px]">
-        {/* Coluna principal: quadra + histórico */}
+        {/* Coluna principal: quadra + historico */}
         <section className="space-y-6">
           {/* Quadra */}
           <Card>
@@ -223,12 +249,14 @@ function Index() {
                 team={state.teamA}
                 onWin={() => declareWinner("A")}
                 canDeclare={!!(state.teamA && state.teamB)}
+                onPlayerLeave={(id) => removePlayer(id)}
               />
               <TeamCard
                 label="Time B"
                 team={state.teamB}
                 onWin={() => declareWinner("B")}
                 canDeclare={!!(state.teamA && state.teamB)}
+                onPlayerLeave={(id) => removePlayer(id)}
               />
             </CardContent>
           </Card>
@@ -244,7 +272,7 @@ function Index() {
             <CardContent>
               {queuePlayers.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Ninguém na fila. Cadastre jogadores ao lado.
+                  Ninguem na fila. Cadastre jogadores ao lado.
                 </p>
               ) : (
                 <ol className="grid gap-2 sm:grid-cols-2">
@@ -274,11 +302,11 @@ function Index() {
             </CardContent>
           </Card>
 
-          {/* Histórico */}
+          {/* Historico */}
           {state.history.length > 0 && (
             <Card>
               <CardHeader>
-                <CardTitle>Últimas partidas</CardTitle>
+                <CardTitle>Ultimas partidas</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {state.history.map((h, i) => (
@@ -325,7 +353,7 @@ function Index() {
                 </SelectContent>
               </Select>
               <Button onClick={addPlayer} className="w-full">
-                <UserPlus className="size-4 mr-1" /> Adicionar à fila
+                <UserPlus className="size-4 mr-1" /> Adicionar a fila
               </Button>
             </CardContent>
           </Card>
@@ -411,11 +439,13 @@ function TeamCard({
   team,
   onWin,
   canDeclare,
+  onPlayerLeave,
 }: {
   label: string;
   team: Team | null;
   onWin: () => void;
   canDeclare: boolean;
+  onPlayerLeave: (id: string) => void;
 }) {
   return (
     <div className="rounded-lg border p-4 space-y-3">
@@ -429,14 +459,25 @@ function TeamCard({
       </div>
       {!team ? (
         <p className="text-sm text-muted-foreground">
-          Sem time. Clique em “Montar times”.
+          Sem time. Clique em "Montar times".
         </p>
       ) : (
         <ul className="space-y-1">
           {team.players.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 text-sm">
-              <span className="font-medium">{p.name}</span>
-              <GenderBadge g={p.gender} />
+            <li key={p.id} className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2">
+                <span className="font-medium">{p.name}</span>
+                <GenderBadge g={p.gender} />
+              </span>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="size-6 text-muted-foreground hover:text-destructive"
+                title="Saiu / Foi embora"
+                onClick={() => onPlayerLeave(p.id)}
+              >
+                <LogOut className="size-3.5" />
+              </Button>
             </li>
           ))}
         </ul>
