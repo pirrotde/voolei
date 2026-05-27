@@ -121,6 +121,40 @@ docker-compose -f docker-compose.remote-db.yml down
 
 ## Troubleshooting
 
+### 🔍 Problemas de Persistência de Dados
+
+Se o sistema está rodando mas não está salvando dados corretamente, use o script de diagnóstico:
+
+**No servidor de produção**:
+```bash
+cd /opt/volei
+bash diagnose-db.sh
+```
+
+Este script irá verificar:
+- Status dos containers
+- Conexão com o banco de dados
+- Permissões e schema
+- Health check da API
+- Testes de criação de sala
+
+**📖 Guia completo**: Consulte `TROUBLESHOOTING-DB.md` para diagnóstico detalhado.
+
+### 🗄️ Configurar Banco de Dados Remoto
+
+Se o banco de dados remoto ainda não foi configurado:
+
+**No servidor de banco (207.58.175.4)**:
+```bash
+bash setup-remote-db.sh
+```
+
+Este script irá:
+- Instalar/configurar MariaDB
+- Liberar conexões externas
+- Criar database, usuário e schema
+- Configurar firewall
+
 ### Porta já em uso
 Se alguma porta já estiver em uso, você pode alterar no `docker-compose.yml`:
 ```yaml
