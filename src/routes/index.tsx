@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -31,6 +32,10 @@ import {
   Plus,
   Undo2,
   TrashIcon,
+  Check,
+  Play,
+  Pause,
+  Timer,
 } from "lucide-react";
 import {
   buildTeam,
@@ -39,6 +44,8 @@ import {
   pickTeam,
   saveState,
   uid,
+  findLastMatchup,
+  recordMatchup,
   type Gender,
   type Player,
   type State,
@@ -65,25 +72,36 @@ function Index() {
     maxConsecutiveWins: 3,
     currentWinStreak: 0,
     championTeamId: null,
+    enforceGenderBalance: true,
     history: [],
+    matchupHistory: [],
+    gameTimer: {
+      elapsedSeconds: 0,
+      isRunning: false,
+      startedAt: null,
+    },
   }));
   const [hydrated, setHydrated] = useState(false);
   const [showWinConfirmation, setShowWinConfirmation] = useState<"A" | "B" | null>(null);
 
   const [name, setName] = useState("");
   const [gender, setGender] = useState<Gender>("M");
+  const [tempMaxWins, setTempMaxWins] = useState(3);
 
   // Carrega estado do banco
   useEffect(() => {
     loadStateFn(roomId)
       .then((roomState: State) => {
         setState(roomState);
+        setTempMaxWins(roomState.maxConsecutiveWins);
         setHydrated(true);
       })
       .catch((err: unknown) => {
         console.error("Erro ao carregar estado:", err);
         // Se der erro, carrega do localStorage como fallback
-        setState(loadState());
+        const loadedState = loadState();
+        setState(loadedState);
+        setTempMaxWins(loadedState.maxConsecutiveWins);
         setHydrated(true);
       });
   }, [roomId]);
@@ -102,6 +120,31 @@ function Index() {
     return () => clearTimeout(timer);
   }, [state, hydrated, roomId]);
 
+  // Timer effect - atualiza a cada segundo quando está rodando
+  useEffect(() => {
+    if (!state.gameTimer.isRunning) return;
+
+    const interval = setInterval(() => {
+      setState((s) => {
+        if (!s.gameTimer.isRunning || !s.gameTimer.startedAt) return s;
+
+        const now = Date.now();
+        const elapsed = Math.floor((now - s.gameTimer.startedAt) / 1000);
+
+        return {
+          ...s,
+          gameTimer: {
+            ...s.gameTimer,
+            elapsedSeconds: s.gameTimer.elapsedSeconds + elapsed,
+            startedAt: now,
+          },
+        };
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state.gameTimer.isRunning]);
+
   const byId = useMemo(() => {
     const m: Record<string, Player> = {};
     for (const p of state.players) m[p.id] = p;
@@ -116,6 +159,58 @@ function Index() {
   }, [state.teamA, state.teamB]);
 
   const target = currentTarget(state.scoreA, state.scoreB);
+
+  // Formata segundos para HH:MM:SS
+  function formatTime(seconds: number): string {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    return [hours, minutes, secs]
+      .map((v) => v.toString().padStart(2, "0"))
+      .join(":");
+  }
+
+  // Funções do timer
+  function startTimer() {
+    setState((s) => ({
+      ...s,
+      gameTimer: {
+        ...s.gameTimer,
+        isRunning: true,
+        startedAt: Date.now(),
+      },
+    }));
+  }
+
+  function pauseTimer() {
+    setState((s) => {
+      if (!s.gameTimer.isRunning || !s.gameTimer.startedAt) return s;
+
+      const now = Date.now();
+      const elapsed = Math.floor((now - s.gameTimer.startedAt) / 1000);
+
+      return {
+        ...s,
+        gameTimer: {
+          elapsedSeconds: s.gameTimer.elapsedSeconds + elapsed,
+          isRunning: false,
+          startedAt: null,
+        },
+      };
+    });
+  }
+
+  function resetTimer() {
+    setState((s) => ({
+      ...s,
+      gameTimer: {
+        elapsedSeconds: 0,
+        isRunning: false,
+        startedAt: null,
+      },
+    }));
+  }
 
   function addPlayer() {
     const n = name.trim();
@@ -192,13 +287,13 @@ function Index() {
       let teamB = s.teamB;
 
       if (!teamA) {
-        const r = pickTeam(queue, byId);
+        const r = pickTeam(queue, byId, s.enforceGenderBalance);
         if (!r) return s;
         teamA = buildTeam(r.teamIds, byId);
         queue = r.rest;
       }
       if (!teamB) {
-        const r = pickTeam(queue, byId);
+        const r = pickTeam(queue, byId, s.enforceGenderBalance);
         if (!r) return { ...s, teamA, queue, scoreA: 0, scoreB: 0, currentWinStreak: 0, championTeamId: null };
         teamB = buildTeam(r.teamIds, byId);
         queue = r.rest;
@@ -259,6 +354,9 @@ function Index() {
     const scoreWin = winner === "A" ? scoreA : scoreB;
     const scoreLose = winner === "A" ? scoreB : scoreA;
 
+    // Registra confronto no histórico
+    const newMatchupHistory = recordMatchup(s.teamA, s.teamB, scoreA, scoreB, s.matchupHistory);
+
     // Verifica se o time perdedor era o campeão
     const championLost = s.championTeamId === loseTeam.id;
     const championWon = s.championTeamId === winTeam.id;
@@ -274,13 +372,13 @@ function Index() {
       newQueue = [...s.queue, ...loseTeam.players.map((p) => p.id), ...winTeam.players.map((p) => p.id)];
 
       // Monta dois novos times da fila
-      const r1 = pickTeam(newQueue, byId);
+      const r1 = pickTeam(newQueue, byId, s.enforceGenderBalance);
       if (!r1) {
         newTeamA = null;
         newTeamB = null;
       } else {
         newTeamA = buildTeam(r1.teamIds, byId);
-        const r2 = pickTeam(r1.rest, byId);
+        const r2 = pickTeam(r1.rest, byId, s.enforceGenderBalance);
         if (!r2) {
           newTeamB = null;
           newQueue = r1.rest;
@@ -295,7 +393,7 @@ function Index() {
       // Fluxo normal: perdedor vai pra fila, vencedor permanece
       newQueue = [...s.queue, ...loseTeam.players.map((p) => p.id)];
 
-      const r = pickTeam(newQueue, byId);
+      const r = pickTeam(newQueue, byId, s.enforceGenderBalance);
       const newChallenger = r ? buildTeam(r.teamIds, byId) : null;
       newQueue = r ? r.rest : newQueue;
 
@@ -323,6 +421,7 @@ function Index() {
       scoreB: 0,
       currentWinStreak: newMatchCount,
       championTeamId: newChampionId,
+      matchupHistory: newMatchupHistory,
       history: [
         {
           winnerNames: winTeam.players.map((p) => p.name),
@@ -350,11 +449,13 @@ function Index() {
     });
   }
 
-  function changeMaxWins(value: number) {
+  function saveMaxWins() {
+    const value = Math.max(1, Math.min(10, tempMaxWins)); // entre 1 e 10
     setState((s) => ({
       ...s,
-      maxConsecutiveWins: Math.max(1, Math.min(10, value)), // entre 1 e 10
+      maxConsecutiveWins: value,
     }));
+    setTempMaxWins(value);
   }
 
   function clearAll() {
@@ -370,7 +471,9 @@ function Index() {
         maxConsecutiveWins: s.maxConsecutiveWins,
         currentWinStreak: 0,
         championTeamId: null,
+        enforceGenderBalance: s.enforceGenderBalance,
         history: [],
+        matchupHistory: [],
       }));
     }
   }
@@ -428,9 +531,15 @@ function Index() {
 
   // Calcula o próximo time da fila
   const nextTeamPreview = useMemo(() => {
-    const r = pickTeam(state.queue, byId);
+    const r = pickTeam(state.queue, byId, state.enforceGenderBalance);
     return r ? r.teamIds.map((id) => byId[id]).filter(Boolean) : [];
-  }, [state.queue, byId]);
+  }, [state.queue, byId, state.enforceGenderBalance]);
+
+  // Busca último confronto entre os times atuais
+  const lastMatchup = useMemo(() => {
+    if (!state.teamA || !state.teamB) return null;
+    return findLastMatchup(state.teamA, state.teamB, state.matchupHistory);
+  }, [state.teamA, state.teamB, state.matchupHistory]);
 
   const matchOn = !!(state.teamA && state.teamB);
   const tiebreak = state.scoreA >= 11 && state.scoreB >= 11;
@@ -444,10 +553,40 @@ function Index() {
               Vôlei dos amigos 🏐
             </h1>
             <p className="text-sm text-muted-foreground">
-              Times de 4 · até 2 mulheres por time · jogo ate {target}
+              Times de 4{state.enforceGenderBalance && " · até 2 mulheres por time"} · jogo ate {target}
               {tiebreak && " (11x11 - vai a 3)"}
             </p>
           </div>
+
+          {/* Timer de jogo no header */}
+          {matchOn && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 rounded-md border border-blue-200 dark:border-blue-800">
+              <Timer className="size-4 text-blue-600 dark:text-blue-400" />
+              <div className="text-lg font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
+                {formatTime(state.gameTimer.elapsedSeconds)}
+              </div>
+              <div className="flex items-center gap-1">
+                {!state.gameTimer.isRunning ? (
+                  <Button onClick={startTimer} variant="default" size="sm">
+                    <Play className="size-3 mr-1" /> Iniciar
+                  </Button>
+                ) : (
+                  <Button onClick={pauseTimer} variant="outline" size="sm">
+                    <Pause className="size-3 mr-1" /> Pausar
+                  </Button>
+                )}
+                <Button
+                  onClick={resetTimer}
+                  variant="ghost"
+                  size="sm"
+                  disabled={state.gameTimer.elapsedSeconds === 0}
+                >
+                  <RotateCcw className="size-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2 flex-wrap">
             <Button
               size="sm"
@@ -472,14 +611,23 @@ function Index() {
         <section className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-              <CardTitle>
-                Quadra
-                {matchOn && (
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    alvo: {target} pts
-                  </span>
+              <div className="space-y-1">
+                <CardTitle>
+                  Quadra
+                  {matchOn && (
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      alvo: {target} pts
+                    </span>
+                  )}
+                </CardTitle>
+                {lastMatchup && matchOn && (
+                  <p className="text-xs text-muted-foreground">
+                    Último confronto: <Badge variant="outline" className="text-xs">
+                      {lastMatchup.teamAScore} x {lastMatchup.teamBScore}
+                    </Badge>
+                  </p>
                 )}
-              </CardTitle>
+              </div>
               <div className="flex gap-2 flex-wrap">
                 {!(state.teamA && state.teamB) && (
                   <Button size="sm" onClick={startMatch}>
@@ -613,13 +761,21 @@ function Index() {
                     type="number"
                     min={1}
                     max={10}
-                    value={state.maxConsecutiveWins}
-                    onChange={(e) => changeMaxWins(parseInt(e.target.value) || 1)}
-                    className="w-20"
+                    value={tempMaxWins}
+                    onChange={(e) => setTempMaxWins(parseInt(e.target.value) || 1)}
+                    className="w-20 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                   <span className="text-sm text-muted-foreground">
                     partidas
                   </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={saveMaxWins}
+                    disabled={tempMaxWins === state.maxConsecutiveWins}
+                  >
+                    <Check className="size-4 mr-1" /> Salvar
+                  </Button>
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Time vencedor permanece até perder. Quando perder após X partidas, ambos os times são remontados
@@ -629,6 +785,26 @@ function Index() {
                     Partidas jogadas pelo time campeão: {state.currentWinStreak}/{state.maxConsecutiveWins}
                   </p>
                 )}
+              </div>
+
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="genderBalance" className="text-sm font-medium">
+                      Critério de gênero
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      {state.enforceGenderBalance
+                        ? "Sempre manter 1-2 mulheres por time"
+                        : "Montar times sem critério de gênero"}
+                    </p>
+                  </div>
+                  <Switch
+                    id="genderBalance"
+                    checked={state.enforceGenderBalance}
+                    onCheckedChange={(checked) => setState((s) => ({ ...s, enforceGenderBalance: checked }))}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

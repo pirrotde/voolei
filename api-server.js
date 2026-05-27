@@ -66,7 +66,7 @@ app.post("/api/rooms/create", async (req, res) => {
     );
 
     await pool.execute(
-      "INSERT INTO room_state (room_id, score_a, score_b, max_consecutive_wins, current_win_streak) VALUES (?, 0, 0, 3, 0)",
+      "INSERT INTO room_state (room_id, score_a, score_b, max_consecutive_wins, current_win_streak, enforce_gender_balance) VALUES (?, 0, 0, 3, 0, TRUE)",
       [roomId]
     );
 
@@ -161,7 +161,7 @@ app.get("/api/state/load", async (req, res) => {
 
     // Busca scores e permanência
     const [stateRows] = await pool.execute(
-      "SELECT score_a, score_b, max_consecutive_wins, current_win_streak FROM room_state WHERE room_id = ?",
+      "SELECT score_a, score_b, max_consecutive_wins, current_win_streak, enforce_gender_balance, game_timer FROM room_state WHERE room_id = ?",
       [roomId]
     );
 
@@ -169,6 +169,21 @@ app.get("/api/state/load", async (req, res) => {
     const scoreB = stateRows.length > 0 ? stateRows[0].score_b : 0;
     const maxConsecutiveWins = stateRows.length > 0 ? stateRows[0].max_consecutive_wins : 3;
     const currentWinStreak = stateRows.length > 0 ? stateRows[0].current_win_streak : 0;
+    const enforceGenderBalance = stateRows.length > 0 ? Boolean(stateRows[0].enforce_gender_balance) : true;
+
+    // Parse game_timer do JSON
+    let gameTimer = {
+      elapsedSeconds: 0,
+      isRunning: false,
+      startedAt: null,
+    };
+    if (stateRows.length > 0 && stateRows[0].game_timer) {
+      try {
+        gameTimer = JSON.parse(stateRows[0].game_timer);
+      } catch (e) {
+        console.error("Erro ao parsear game_timer:", e);
+      }
+    }
 
     // Busca histórico
     const [historyRows] = await pool.execute(
@@ -184,6 +199,20 @@ app.get("/api/state/load", async (req, res) => {
       at: new Date(row.played_at).getTime(),
     }));
 
+    // Busca histórico de confrontos
+    const [matchupRows] = await pool.execute(
+      "SELECT team_a_ids, team_b_ids, team_a_score, team_b_score, played_at FROM matchup_history WHERE room_id = ? ORDER BY played_at DESC LIMIT 50",
+      [roomId]
+    );
+
+    const matchupHistory = matchupRows.map((row) => ({
+      teamAIds: JSON.parse(row.team_a_ids),
+      teamBIds: JSON.parse(row.team_b_ids),
+      teamAScore: row.team_a_score,
+      teamBScore: row.team_b_score,
+      at: new Date(row.played_at).getTime(),
+    }));
+
     res.json({
       players,
       queue,
@@ -193,7 +222,11 @@ app.get("/api/state/load", async (req, res) => {
       scoreB,
       maxConsecutiveWins,
       currentWinStreak,
+      championTeamId: null, // Não persiste no banco por enquanto
+      enforceGenderBalance,
       history,
+      matchupHistory,
+      gameTimer,
     });
   } catch (error) {
     console.error("Erro ao carregar estado:", error);
@@ -268,11 +301,75 @@ app.post("/api/state/save", async (req, res) => {
       }
     }
 
-    // Atualiza scores e permanência
+    // Atualiza scores, permanência e configurações
     await conn.execute(
-      "UPDATE room_state SET score_a = ?, score_b = ?, max_consecutive_wins = ?, current_win_streak = ? WHERE room_id = ?",
-      [state.scoreA, state.scoreB, state.maxConsecutiveWins || 3, state.currentWinStreak || 0, roomId]
+      "UPDATE room_state SET score_a = ?, score_b = ?, max_consecutive_wins = ?, current_win_streak = ?, enforce_gender_balance = ?, game_timer = ? WHERE room_id = ?",
+      [
+        state.scoreA,
+        state.scoreB,
+        state.maxConsecutiveWins || 3,
+        state.currentWinStreak || 0,
+        state.enforceGenderBalance !== undefined ? state.enforceGenderBalance : true,
+        JSON.stringify(state.gameTimer || { elapsedSeconds: 0, isRunning: false, startedAt: null }),
+        roomId
+      ]
     );
+
+    // Salva histórico de partidas (se houver novos registros)
+    if (state.history && state.history.length > 0) {
+      // Busca quantos registros já existem para esta sala
+      const [existingHistory] = await conn.execute(
+        "SELECT COUNT(*) as count FROM match_history WHERE room_id = ?",
+        [roomId]
+      );
+
+      const existingCount = existingHistory[0].count;
+
+      // Insere apenas registros novos (state.history está ordenado do mais recente para o mais antigo)
+      const newRecords = state.history.slice(0, Math.max(0, state.history.length - existingCount));
+
+      for (const match of newRecords) {
+        await conn.execute(
+          "INSERT INTO match_history (room_id, winner_names, loser_names, score_win, score_lose, played_at) VALUES (?, ?, ?, ?, ?, ?)",
+          [
+            roomId,
+            JSON.stringify(match.winnerNames),
+            JSON.stringify(match.loserNames),
+            match.scoreWin,
+            match.scoreLose,
+            new Date(match.at)
+          ]
+        );
+      }
+    }
+
+    // Salva histórico de confrontos (se houver novos registros)
+    if (state.matchupHistory && state.matchupHistory.length > 0) {
+      // Busca quantos registros já existem para esta sala
+      const [existingMatchups] = await conn.execute(
+        "SELECT COUNT(*) as count FROM matchup_history WHERE room_id = ?",
+        [roomId]
+      );
+
+      const existingMatchupsCount = existingMatchups[0].count;
+
+      // Insere apenas registros novos
+      const newMatchups = state.matchupHistory.slice(0, Math.max(0, state.matchupHistory.length - existingMatchupsCount));
+
+      for (const matchup of newMatchups) {
+        await conn.execute(
+          "INSERT INTO matchup_history (room_id, team_a_ids, team_b_ids, team_a_score, team_b_score, played_at) VALUES (?, ?, ?, ?, ?, ?)",
+          [
+            roomId,
+            JSON.stringify(matchup.teamAIds),
+            JSON.stringify(matchup.teamBIds),
+            matchup.teamAScore,
+            matchup.teamBScore,
+            new Date(matchup.at)
+          ]
+        );
+      }
+    }
 
     await conn.commit();
     res.json({ success: true });

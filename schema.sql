@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS room_state (
   score_b INT DEFAULT 0,
   max_consecutive_wins INT DEFAULT 3,
   current_win_streak INT DEFAULT 0,
+  enforce_gender_balance BOOLEAN DEFAULT TRUE,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -73,4 +74,17 @@ CREATE TABLE IF NOT EXISTS match_history (
   played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
   INDEX idx_room_played (room_id, played_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS matchup_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  room_id VARCHAR(36) NOT NULL,
+  team_a_ids JSON NOT NULL COMMENT 'IDs dos jogadores do time A (ordenados)',
+  team_b_ids JSON NOT NULL COMMENT 'IDs dos jogadores do time B (ordenados)',
+  team_a_score INT NOT NULL,
+  team_b_score INT NOT NULL,
+  played_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+  INDEX idx_room (room_id),
+  INDEX idx_played (played_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
