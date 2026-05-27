@@ -33,9 +33,6 @@ import {
   Undo2,
   TrashIcon,
   Check,
-  Play,
-  Pause,
-  Timer,
 } from "lucide-react";
 import {
   buildTeam,
@@ -127,33 +124,6 @@ function Index() {
     return () => clearTimeout(timer);
   }, [state, hydrated, roomId, stateRef]);
 
-  // Timer effect - atualiza a cada segundo quando está rodando
-  useEffect(() => {
-    if (!state.gameTimer.isRunning) return;
-
-    const interval = setInterval(() => {
-      setState((s) => {
-        if (!s.gameTimer.isRunning || !s.gameTimer.startedAt) return s;
-
-        const now = Date.now();
-        const elapsed = Math.floor((now - s.gameTimer.startedAt) / 1000);
-
-        // IMPORTANTE: Usa spread (...s) para manter TODOS os campos do estado,
-        // incluindo scoreA e scoreB que podem ter mudado
-        return {
-          ...s,
-          gameTimer: {
-            elapsedSeconds: s.gameTimer.elapsedSeconds + elapsed,
-            isRunning: s.gameTimer.isRunning,
-            startedAt: now,
-          },
-        };
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [state.gameTimer.isRunning]);
-
   const byId = useMemo(() => {
     const m: Record<string, Player> = {};
     for (const p of state.players) m[p.id] = p;
@@ -168,58 +138,6 @@ function Index() {
   }, [state.teamA, state.teamB]);
 
   const target = currentTarget(state.scoreA, state.scoreB);
-
-  // Formata segundos para HH:MM:SS
-  function formatTime(seconds: number): string {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    return [hours, minutes, secs]
-      .map((v) => v.toString().padStart(2, "0"))
-      .join(":");
-  }
-
-  // Funções do timer
-  function startTimer() {
-    setState((s) => ({
-      ...s,
-      gameTimer: {
-        ...s.gameTimer,
-        isRunning: true,
-        startedAt: Date.now(),
-      },
-    }));
-  }
-
-  function pauseTimer() {
-    setState((s) => {
-      if (!s.gameTimer.isRunning || !s.gameTimer.startedAt) return s;
-
-      const now = Date.now();
-      const elapsed = Math.floor((now - s.gameTimer.startedAt) / 1000);
-
-      return {
-        ...s,
-        gameTimer: {
-          elapsedSeconds: s.gameTimer.elapsedSeconds + elapsed,
-          isRunning: false,
-          startedAt: null,
-        },
-      };
-    });
-  }
-
-  function resetTimer() {
-    setState((s) => ({
-      ...s,
-      gameTimer: {
-        elapsedSeconds: 0,
-        isRunning: false,
-        startedAt: null,
-      },
-    }));
-  }
 
   function addPlayer() {
     const n = name.trim();
@@ -585,35 +503,6 @@ function Index() {
               {tiebreak && " (11x11 - vai a 3)"}
             </p>
           </div>
-
-          {/* Timer de jogo no header */}
-          {matchOn && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 rounded-md border border-blue-200 dark:border-blue-800">
-              <Timer className="size-4 text-blue-600 dark:text-blue-400" />
-              <div className="text-lg font-mono font-bold text-blue-700 dark:text-blue-300 tabular-nums">
-                {formatTime(state.gameTimer.elapsedSeconds)}
-              </div>
-              <div className="flex items-center gap-1">
-                {!state.gameTimer.isRunning ? (
-                  <Button onClick={startTimer} variant="default" size="sm">
-                    <Play className="size-3 mr-1" /> Iniciar
-                  </Button>
-                ) : (
-                  <Button onClick={pauseTimer} variant="outline" size="sm">
-                    <Pause className="size-3 mr-1" /> Pausar
-                  </Button>
-                )}
-                <Button
-                  onClick={resetTimer}
-                  variant="ghost"
-                  size="sm"
-                  disabled={state.gameTimer.elapsedSeconds === 0}
-                >
-                  <RotateCcw className="size-3" />
-                </Button>
-              </div>
-            </div>
-          )}
 
           <div className="flex gap-2 flex-wrap">
             <Button

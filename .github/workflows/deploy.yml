@@ -130,11 +130,17 @@ jobs:
             echo "Conteúdo do .env criado (valores ocultos):"
             sed 's/=.*/=***/' .env
 
-            echo "Construindo imagens..."
-            docker-compose -f docker-compose.remote-db.yml -p volei build --no-cache
-
             echo "Parando containers antigos..."
             docker-compose -f docker-compose.remote-db.yml -p volei down 2>/dev/null || true
+
+            echo "Removendo imagens antigas..."
+            docker rmi volei-frontend volei-api 2>/dev/null || true
+
+            echo "Limpando cache do Docker..."
+            docker builder prune -f 2>/dev/null || true
+
+            echo "Construindo novas imagens (sem cache)..."
+            docker-compose -f docker-compose.remote-db.yml -p volei build --no-cache --pull --force-rm
 
             echo "Subindo serviços (API + Frontend - usando banco remoto)..."
             docker-compose -f docker-compose.remote-db.yml -p volei up -d
