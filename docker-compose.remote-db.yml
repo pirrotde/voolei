@@ -34,8 +34,8 @@ services:
     restart: unless-stopped
     command: npm run dev
     environment:
-      # API URL
-      VITE_API_URL: http://localhost:3001
+      # API URL (usa nome do serviço Docker, não localhost)
+      VITE_API_URL: http://api:3001
 
       # Proxy Reverso (nginx-proxy-automation) - Detectado automaticamente
       VIRTUAL_HOST: ${VOLEI_DOMAIN}

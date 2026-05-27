@@ -112,8 +112,8 @@ jobs:
           # API Config
           API_PORT=3001
 
-          # Frontend Config
-          VITE_API_URL=http://localhost:3001
+          # Frontend Config (usa nome do serviço Docker, não localhost)
+          VITE_API_URL=http://api:3001
           ENVFILE
 
             # Substituir variáveis no .env
