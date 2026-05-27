@@ -236,16 +236,21 @@ app.get("/api/state/load", async (req, res) => {
 
 // POST /api/state/save - Salva estado da sala
 app.post("/api/state/save", async (req, res) => {
-  const conn = await pool.getConnection();
+  const { roomId, state } = req.body;
 
-  try {
-    const { roomId, state } = req.body;
+  if (!roomId || !state) {
+    return res.status(400).json({ error: "roomId e state são obrigatórios" });
+  }
 
-    if (!roomId || !state) {
-      return res.status(400).json({ error: "roomId e state são obrigatórios" });
-    }
+  // Retry logic para tratar deadlocks
+  let retries = 3;
+  let lastError;
 
-    await conn.beginTransaction();
+  while (retries > 0) {
+    const conn = await pool.getConnection();
+
+    try {
+      await conn.beginTransaction();
 
     // Limpa dados antigos da sala (exceto histórico)
     await conn.execute(
@@ -301,22 +306,39 @@ app.post("/api/state/save", async (req, res) => {
       }
     }
 
-    // Atualiza scores, permanência e configurações
+    // Atualiza scores, permanência e configurações (UPSERT)
+    const scoreA = state.scoreA ?? 0;
+    const scoreB = state.scoreB ?? 0;
+
     await conn.execute(
-      "UPDATE room_state SET score_a = ?, score_b = ?, max_consecutive_wins = ?, current_win_streak = ?, enforce_gender_balance = ?, game_timer = ? WHERE room_id = ?",
+      `INSERT INTO room_state (room_id, score_a, score_b, max_consecutive_wins, current_win_streak, enforce_gender_balance, game_timer)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         score_a = VALUES(score_a),
+         score_b = VALUES(score_b),
+         max_consecutive_wins = VALUES(max_consecutive_wins),
+         current_win_streak = VALUES(current_win_streak),
+         enforce_gender_balance = VALUES(enforce_gender_balance),
+         game_timer = VALUES(game_timer)`,
       [
-        state.scoreA,
-        state.scoreB,
+        roomId,
+        scoreA,
+        scoreB,
         state.maxConsecutiveWins || 3,
         state.currentWinStreak || 0,
         state.enforceGenderBalance !== undefined ? state.enforceGenderBalance : true,
-        JSON.stringify(state.gameTimer || { elapsedSeconds: 0, isRunning: false, startedAt: null }),
-        roomId
+        JSON.stringify(state.gameTimer || { elapsedSeconds: 0, isRunning: false, startedAt: null })
       ]
     );
 
-    // Salva histórico de partidas (se houver novos registros)
-    if (state.history && state.history.length > 0) {
+    // Salva histórico de partidas
+    if (state.history && state.history.length === 0) {
+      // Se o histórico está vazio, deleta todos os registros do banco
+      await conn.execute(
+        "DELETE FROM match_history WHERE room_id = ?",
+        [roomId]
+      );
+    } else if (state.history && state.history.length > 0) {
       // Busca quantos registros já existem para esta sala
       const [existingHistory] = await conn.execute(
         "SELECT COUNT(*) as count FROM match_history WHERE room_id = ?",
@@ -343,8 +365,14 @@ app.post("/api/state/save", async (req, res) => {
       }
     }
 
-    // Salva histórico de confrontos (se houver novos registros)
-    if (state.matchupHistory && state.matchupHistory.length > 0) {
+    // Salva histórico de confrontos
+    if (state.matchupHistory && state.matchupHistory.length === 0) {
+      // Se o histórico de confrontos está vazio, deleta todos os registros do banco
+      await conn.execute(
+        "DELETE FROM matchup_history WHERE room_id = ?",
+        [roomId]
+      );
+    } else if (state.matchupHistory && state.matchupHistory.length > 0) {
       // Busca quantos registros já existem para esta sala
       const [existingMatchups] = await conn.execute(
         "SELECT COUNT(*) as count FROM matchup_history WHERE room_id = ?",
@@ -371,15 +399,32 @@ app.post("/api/state/save", async (req, res) => {
       }
     }
 
-    await conn.commit();
-    res.json({ success: true });
-  } catch (error) {
-    await conn.rollback();
-    console.error("Erro ao salvar estado:", error);
-    res.status(500).json({ error: "Erro ao salvar estado" });
-  } finally {
-    conn.release();
+      await conn.commit();
+      conn.release();
+      return res.json({ success: true });
+    } catch (error) {
+      await conn.rollback();
+      conn.release();
+      lastError = error;
+
+      // Se for deadlock, tenta novamente
+      if (error.code === 'ER_LOCK_DEADLOCK' && retries > 1) {
+        retries--;
+        const delay = (4 - retries) * 200; // 200ms, 400ms, 600ms
+        console.log(`Deadlock detectado, tentando novamente (${retries} tentativas restantes) após ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      // Se não for deadlock ou acabaram as tentativas, retorna erro
+      console.error("Erro ao salvar estado:", error);
+      return res.status(500).json({ error: "Erro ao salvar estado" });
+    }
   }
+
+  // Se chegou aqui, acabaram todas as tentativas
+  console.error("Falha após todas as tentativas:", lastError);
+  return res.status(500).json({ error: "Erro ao salvar estado após múltiplas tentativas" });
 });
 
 // Rota de health check

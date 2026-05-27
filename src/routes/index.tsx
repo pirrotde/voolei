@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -88,6 +88,12 @@ function Index() {
   const [gender, setGender] = useState<Gender>("M");
   const [tempMaxWins, setTempMaxWins] = useState(3);
 
+  // useRef para sempre ter o estado mais recente
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
   // Carrega estado do banco
   useEffect(() => {
     loadStateFn(roomId)
@@ -110,15 +116,16 @@ function Index() {
   useEffect(() => {
     if (!hydrated) return;
 
-    // Salva no banco (debounce para evitar muitas chamadas)
+    // Salva no banco (debounce maior para evitar conflitos com o timer)
     const timer = setTimeout(() => {
-      saveStateFn(roomId, state).catch((err: unknown) => {
+      const currentState = stateRef.current;
+      saveStateFn(roomId, currentState).catch((err: unknown) => {
         console.error("Erro ao salvar estado:", err);
       });
-    }, 500);
+    }, 1500);
 
     return () => clearTimeout(timer);
-  }, [state, hydrated, roomId]);
+  }, [state, hydrated, roomId, stateRef]);
 
   // Timer effect - atualiza a cada segundo quando está rodando
   useEffect(() => {
@@ -131,11 +138,13 @@ function Index() {
         const now = Date.now();
         const elapsed = Math.floor((now - s.gameTimer.startedAt) / 1000);
 
+        // IMPORTANTE: Usa spread (...s) para manter TODOS os campos do estado,
+        // incluindo scoreA e scoreB que podem ter mudado
         return {
           ...s,
           gameTimer: {
-            ...s.gameTimer,
             elapsedSeconds: s.gameTimer.elapsedSeconds + elapsed,
+            isRunning: s.gameTimer.isRunning,
             startedAt: now,
           },
         };
@@ -461,20 +470,39 @@ function Index() {
   function clearAll() {
     if (window.confirm("Tem certeza que deseja limpar TUDO? Isso apagará jogadores, histórico e partida atual.")) {
       console.log("Limpando tudo...");
+
+      // Pausa o timer primeiro para evitar conflitos de salvamento
       setState((s) => ({
-        players: [],
-        queue: [],
-        teamA: null,
-        teamB: null,
-        scoreA: 0,
-        scoreB: 0,
-        maxConsecutiveWins: s.maxConsecutiveWins,
-        currentWinStreak: 0,
-        championTeamId: null,
-        enforceGenderBalance: s.enforceGenderBalance,
-        history: [],
-        matchupHistory: [],
+        ...s,
+        gameTimer: {
+          elapsedSeconds: 0,
+          isRunning: false,
+          startedAt: null,
+        },
       }));
+
+      // Aguarda um pouco para o timer parar antes de limpar tudo
+      setTimeout(() => {
+        setState((s) => ({
+          players: [],
+          queue: [],
+          teamA: null,
+          teamB: null,
+          scoreA: 0,
+          scoreB: 0,
+          maxConsecutiveWins: s.maxConsecutiveWins,
+          currentWinStreak: 0,
+          championTeamId: null,
+          enforceGenderBalance: s.enforceGenderBalance,
+          history: [],
+          matchupHistory: [],
+          gameTimer: {
+            elapsedSeconds: 0,
+            isRunning: false,
+            startedAt: null,
+          },
+        }));
+      }, 100);
     }
   }
 
