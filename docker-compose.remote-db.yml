@@ -10,6 +10,11 @@ services:
     container_name: volei-api
     restart: unless-stopped
     command: npm run api
+    environment:
+      # Nginx-proxy configuration para /api
+      VIRTUAL_HOST: ${VOLEI_DOMAIN}
+      VIRTUAL_PATH: /api
+      VIRTUAL_PORT: 3001
     ports:
       - "3001:3001"
     networks:
@@ -17,6 +22,8 @@ services:
       - Infra  # Rede da infraestrutura (nginx-proxy, cloudflare-dns, etc)
     env_file:
       - .env
+    labels:
+      - "com.github.nginx-proxy.nginx-proxy.enable=true"
 
   # Frontend (Vite)
   frontend:

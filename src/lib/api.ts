@@ -1,6 +1,9 @@
 import type { State } from "./volei";
 
-const API_BASE_URL = "http://localhost:3001";
+// Usa URL relativa em produção (mesma origem) ou localhost em dev
+const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+  ? `//${window.location.host}/api`
+  : (import.meta.env.VITE_API_URL || "http://localhost:3001");
 
 export async function createRoomFn(name: string): Promise<{ id: string; code: string }> {
   const response = await fetch(`${API_BASE_URL}/api/rooms/create`, {
