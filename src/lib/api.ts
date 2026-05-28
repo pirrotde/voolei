@@ -6,7 +6,7 @@ const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !
   : (import.meta.env.VITE_API_URL || "http://localhost:3001");
 
 export async function createRoomFn(name: string): Promise<{ id: string; code: string }> {
-  const response = await fetch(`${API_BASE_URL}/api/rooms/create`, {
+  const response = await fetch(`${API_BASE_URL}/rooms/create`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -21,7 +21,7 @@ export async function createRoomFn(name: string): Promise<{ id: string; code: st
 }
 
 export async function joinRoomFn(code: string): Promise<{ roomId: string }> {
-  const response = await fetch(`${API_BASE_URL}/api/rooms/join`, {
+  const response = await fetch(`${API_BASE_URL}/rooms/join`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ code }),
@@ -36,7 +36,7 @@ export async function joinRoomFn(code: string): Promise<{ roomId: string }> {
 }
 
 export async function loadStateFn(roomId: string): Promise<State> {
-  const response = await fetch(`${API_BASE_URL}/api/state/load?roomId=${encodeURIComponent(roomId)}`);
+  const response = await fetch(`${API_BASE_URL}/state/load?roomId=${encodeURIComponent(roomId)}`);
 
   if (!response.ok) {
     const error = await response.json();
@@ -47,7 +47,7 @@ export async function loadStateFn(roomId: string): Promise<State> {
 }
 
 export async function saveStateFn(roomId: string, state: State): Promise<{ success: true }> {
-  const response = await fetch(`${API_BASE_URL}/api/state/save`, {
+  const response = await fetch(`${API_BASE_URL}/state/save`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ roomId, state }),

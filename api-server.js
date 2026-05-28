@@ -48,8 +48,8 @@ function generateId() {
 
 // ==================== ROTAS ====================
 
-// POST /api/rooms/create - Cria nova sala
-app.post("/api/rooms/create", async (req, res) => {
+// POST /rooms/create - Cria nova sala
+app.post("/rooms/create", async (req, res) => {
   try {
     const { name } = req.body;
 
@@ -77,8 +77,8 @@ app.post("/api/rooms/create", async (req, res) => {
   }
 });
 
-// POST /api/rooms/join - Entra em uma sala
-app.post("/api/rooms/join", async (req, res) => {
+// POST /rooms/join - Entra em uma sala
+app.post("/rooms/join", async (req, res) => {
   try {
     const { code } = req.body;
 
@@ -102,8 +102,8 @@ app.post("/api/rooms/join", async (req, res) => {
   }
 });
 
-// GET /api/state/load - Carrega estado da sala
-app.get("/api/state/load", async (req, res) => {
+// GET /state/load - Carrega estado da sala
+app.get("/state/load", async (req, res) => {
   try {
     const { roomId } = req.query;
 
@@ -234,8 +234,8 @@ app.get("/api/state/load", async (req, res) => {
   }
 });
 
-// POST /api/state/save - Salva estado da sala
-app.post("/api/state/save", async (req, res) => {
+// POST /state/save - Salva estado da sala
+app.post("/state/save", async (req, res) => {
   const { roomId, state } = req.body;
 
   if (!roomId || !state) {
