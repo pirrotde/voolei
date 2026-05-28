@@ -21,7 +21,7 @@ services:
 
       # Cloudflare DNS Manager - Cria DNS A automaticamente
       CLOUDFLARE_AUTO_DNS: "true"
-      CLOUDFLARE_PROXIED: "true"
+      CLOUDFLARE_PROXIED: "false"
     ports:
       - "3001:3001"
     networks:
