@@ -89,9 +89,9 @@ jobs:
           DEFAULT_EMAIL: ${{ secrets.DEFAULT_EMAIL }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT || '3306' }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.MYSQL_USER }}
+          DB_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
+          DB_NAME: ${{ secrets.MYSQL_DATABASE }}
         run: |
           # Criar .env localmente com os valores
           cat > /tmp/.env << EOF
