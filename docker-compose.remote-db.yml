@@ -11,10 +11,17 @@ services:
     restart: unless-stopped
     command: npm run api
     environment:
-      # Nginx-proxy configuration para /api
-      VIRTUAL_HOST: ${VOLEI_DOMAIN}
-      VIRTUAL_PATH: /api
+      # Proxy Reverso (nginx-proxy-automation) - Subdomínio separado
+      VIRTUAL_HOST: ${VOLEI_API_DOMAIN}
       VIRTUAL_PORT: 3001
+
+      # SSL (Let's Encrypt) - Gerado automaticamente pelo nginx-proxy
+      LETSENCRYPT_HOST: ${VOLEI_API_DOMAIN}
+      LETSENCRYPT_EMAIL: ${DEFAULT_EMAIL}
+
+      # Cloudflare DNS Manager - Cria DNS A automaticamente
+      CLOUDFLARE_AUTO_DNS: "true"
+      CLOUDFLARE_PROXIED: "true"
     ports:
       - "3001:3001"
     networks:
@@ -43,7 +50,7 @@ services:
 
       # Cloudflare DNS Manager - Cria DNS A automaticamente
       CLOUDFLARE_AUTO_DNS: "true"
-      CLOUDFLARE_PROXIED: "true"
+      CLOUDFLARE_PROXIED: "false"
     ports:
       - "8080:8080"
     depends_on:

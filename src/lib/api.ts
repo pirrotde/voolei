@@ -1,8 +1,8 @@
 import type { State } from "./volei";
 
-// Usa URL relativa em produção (mesma origem) ou localhost em dev
+// Usa subdomínio em produção ou localhost em dev
 const API_BASE_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-  ? `//${window.location.host}/api`
+  ? `https://${import.meta.env.VITE_API_DOMAIN || 'volei-api.proativeti.com.br'}`
   : (import.meta.env.VITE_API_URL || "http://localhost:3001");
 
 export async function createRoomFn(name: string): Promise<{ id: string; code: string }> {

@@ -86,6 +86,7 @@ jobs:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
           VOLEI_DOMAIN: ${{ secrets.VOLEI_DOMAIN }}
+          VOLEI_API_DOMAIN: ${{ secrets.VOLEI_API_DOMAIN }}
           DEFAULT_EMAIL: ${{ secrets.DEFAULT_EMAIL }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT || '3306' }}
@@ -97,6 +98,7 @@ jobs:
           cat > /tmp/.env << EOF
           # Proxy Reverso
           VOLEI_DOMAIN=$VOLEI_DOMAIN
+          VOLEI_API_DOMAIN=$VOLEI_API_DOMAIN
           DEFAULT_EMAIL=$DEFAULT_EMAIL
 
           # Database Remoto
@@ -109,8 +111,8 @@ jobs:
           # API Config
           API_PORT=3001
 
-          # Frontend Config (usa nome do serviço Docker, não localhost)
-          VITE_API_URL=http://api:3001
+          # Frontend Config (usa subdomínio da API)
+          VITE_API_DOMAIN=$VOLEI_API_DOMAIN
           EOF
 
           echo "Conteúdo do .env criado (valores ocultos):"
@@ -151,6 +153,7 @@ jobs:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
           SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
           VOLEI_DOMAIN: ${{ secrets.VOLEI_DOMAIN }}
+          VOLEI_API_DOMAIN: ${{ secrets.VOLEI_API_DOMAIN }}
         run: |
           sleep 10
           sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST << 'ENDSSH'
@@ -216,22 +219,25 @@ jobs:
         if: always()
         env:
           VOLEI_DOMAIN: ${{ secrets.VOLEI_DOMAIN }}
+          VOLEI_API_DOMAIN: ${{ secrets.VOLEI_API_DOMAIN }}
           DEFAULT_EMAIL: ${{ secrets.DEFAULT_EMAIL }}
         run: |
           echo "=========================================="
           if [ ${{ job.status }} == 'success' ]; then
             echo "DEPLOY REALIZADO COM SUCESSO!"
             echo ""
-            echo "URL: https://$VOLEI_DOMAIN"
+            echo "URLs:"
+            echo "   - Frontend: https://$VOLEI_DOMAIN"
+            echo "   - API: https://$VOLEI_API_DOMAIN"
             echo "Email SSL: $DEFAULT_EMAIL"
             echo ""
             echo "Serviços deployados:"
-            echo "   - API (Express) - porta 3001 → conectado ao banco remoto"
-            echo "   - Frontend (Vite) - porta 8080"
+            echo "   - API (Express) - porta 3001 → $VOLEI_API_DOMAIN"
+            echo "   - Frontend (Vite) - porta 8080 → $VOLEI_DOMAIN"
             echo ""
             echo "Aguarde 1-5 minutos para:"
-            echo "   - DNS propagar"
-            echo "   - Certificado SSL ser gerado"
+            echo "   - DNS propagar (ambos os domínios)"
+            echo "   - Certificados SSL serem gerados"
           else
             echo "DEPLOY FALHOU!"
             echo ""
