@@ -93,35 +93,36 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
+          # Criar .env localmente com os valores
+          cat > /tmp/.env << EOF
+          # Proxy Reverso
+          VOLEI_DOMAIN=$VOLEI_DOMAIN
+          DEFAULT_EMAIL=$DEFAULT_EMAIL
+
+          # Database Remoto
+          DB_HOST=$DB_HOST
+          DB_PORT=$DB_PORT
+          DB_USER=$DB_USER
+          DB_PASSWORD=$DB_PASSWORD
+          DB_NAME=$DB_NAME
+
+          # API Config
+          API_PORT=3001
+
+          # Frontend Config (usa nome do serviço Docker, não localhost)
+          VITE_API_URL=http://api:3001
+          EOF
+
+          echo "Conteúdo do .env criado (valores ocultos):"
+          sed 's/=.*/=***/' /tmp/.env
+
+          # Copiar .env para o servidor
+          sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no -P $SSH_PORT /tmp/.env $SSH_USER@$SSH_HOST:${{ env.DEPLOY_PATH }}/.env
+
+          # Ajustar permissões e fazer deploy
           sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST \
-            "export VOLEI_DOMAIN=\"$VOLEI_DOMAIN\" && \
-             export DEFAULT_EMAIL=\"$DEFAULT_EMAIL\" && \
-             export DB_HOST=\"$DB_HOST\" && \
-             export DB_PORT=\"$DB_PORT\" && \
-             export DB_USER=\"$DB_USER\" && \
-             export DB_PASSWORD=\"$DB_PASSWORD\" && \
-             export DB_NAME=\"$DB_NAME\" && \
-             cd ${{ env.DEPLOY_PATH }} && \
-             echo 'Criando/Atualizando .env...' && \
-             echo '# Proxy Reverso' > .env && \
-             echo \"VOLEI_DOMAIN=\$VOLEI_DOMAIN\" >> .env && \
-             echo \"DEFAULT_EMAIL=\$DEFAULT_EMAIL\" >> .env && \
-             echo '' >> .env && \
-             echo '# Database Remoto' >> .env && \
-             echo \"DB_HOST=\$DB_HOST\" >> .env && \
-             echo \"DB_PORT=\$DB_PORT\" >> .env && \
-             echo \"DB_USER=\$DB_USER\" >> .env && \
-             echo \"DB_PASSWORD=\$DB_PASSWORD\" >> .env && \
-             echo \"DB_NAME=\$DB_NAME\" >> .env && \
-             echo '' >> .env && \
-             echo '# API Config' >> .env && \
-             echo 'API_PORT=3001' >> .env && \
-             echo '' >> .env && \
-             echo '# Frontend Config (usa nome do serviço Docker, não localhost)' >> .env && \
-             echo 'VITE_API_URL=http://api:3001' >> .env && \
+            "cd ${{ env.DEPLOY_PATH }} && \
              chmod 600 .env && \
-             echo 'Conteúdo do .env criado (valores ocultos):' && \
-             sed 's/=.*/=***/' .env && \
              echo 'Parando containers antigos...' && \
              docker-compose -f docker-compose.remote-db.yml -p volei down 2>/dev/null || true && \
              echo 'Removendo imagens antigas...' && \
