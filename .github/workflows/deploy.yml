@@ -93,21 +93,27 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-          sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST bash << EOF
-            cd ${{ env.DEPLOY_PATH }}
-
-            echo "Criando/Atualizando .env..."
-            cat > .env << ENVFILE
+          sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST \
+            "export VOLEI_DOMAIN='$VOLEI_DOMAIN' && \
+             export DEFAULT_EMAIL='$DEFAULT_EMAIL' && \
+             export DB_HOST='$DB_HOST' && \
+             export DB_PORT='$DB_PORT' && \
+             export DB_USER='$DB_USER' && \
+             export DB_PASSWORD='$DB_PASSWORD' && \
+             export DB_NAME='$DB_NAME' && \
+             cd ${{ env.DEPLOY_PATH }} && \
+             echo 'Criando/Atualizando .env...' && \
+             cat > .env << 'ENVFILE'
 # Proxy Reverso
-VOLEI_DOMAIN=$VOLEI_DOMAIN
-DEFAULT_EMAIL=$DEFAULT_EMAIL
+VOLEI_DOMAIN=__VOLEI_DOMAIN__
+DEFAULT_EMAIL=__DEFAULT_EMAIL__
 
 # Database Remoto
-DB_HOST=$DB_HOST
-DB_PORT=${DB_PORT:-3306}
-DB_USER=$DB_USER
-DB_PASSWORD=$DB_PASSWORD
-DB_NAME=$DB_NAME
+DB_HOST=__DB_HOST__
+DB_PORT=__DB_PORT__
+DB_USER=__DB_USER__
+DB_PASSWORD=__DB_PASSWORD__
+DB_NAME=__DB_NAME__
 
 # API Config
 API_PORT=3001
@@ -115,41 +121,36 @@ API_PORT=3001
 # Frontend Config (usa nome do serviço Docker, não localhost)
 VITE_API_URL=http://api:3001
 ENVFILE
-
-            chmod 600 .env
-
-            echo "Conteúdo do .env criado (valores ocultos):"
-            sed 's/=.*/=***/' .env
-
-            echo "Parando containers antigos..."
-            docker-compose -f docker-compose.remote-db.yml -p volei down 2>/dev/null || true
-
-            echo "Removendo imagens antigas..."
-            docker rmi volei-frontend volei-api 2>/dev/null || true
-
-            echo "Limpando cache do Docker..."
-            docker builder prune -f 2>/dev/null || true
-
-            echo "Construindo novas imagens (sem cache)..."
-            docker-compose -f docker-compose.remote-db.yml -p volei build --no-cache --pull --force-rm
-
-            echo "Subindo serviços (API + Frontend - usando banco remoto)..."
-            docker-compose -f docker-compose.remote-db.yml -p volei up -d
-
-            echo "Aguardando inicialização (20s)..."
-            sleep 20
-
-            echo "Status dos containers:"
-            docker ps --filter "name=volei" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-
-            echo ""
-            echo "Últimos logs da API:"
-            docker logs volei-api --tail=20
-
-            echo ""
-            echo "Últimos logs do frontend:"
-            docker logs volei-frontend --tail=20
-          EOF
+             sed -i \"s|__VOLEI_DOMAIN__|\$VOLEI_DOMAIN|g\" .env && \
+             sed -i \"s|__DEFAULT_EMAIL__|\$DEFAULT_EMAIL|g\" .env && \
+             sed -i \"s|__DB_HOST__|\$DB_HOST|g\" .env && \
+             sed -i \"s|__DB_PORT__|\$DB_PORT|g\" .env && \
+             sed -i \"s|__DB_USER__|\$DB_USER|g\" .env && \
+             sed -i \"s|__DB_PASSWORD__|\$DB_PASSWORD|g\" .env && \
+             sed -i \"s|__DB_NAME__|\$DB_NAME|g\" .env && \
+             chmod 600 .env && \
+             echo 'Conteúdo do .env criado (valores ocultos):' && \
+             sed 's/=.*/=***/' .env && \
+             echo 'Parando containers antigos...' && \
+             docker-compose -f docker-compose.remote-db.yml -p volei down 2>/dev/null || true && \
+             echo 'Removendo imagens antigas...' && \
+             docker rmi volei-frontend volei-api 2>/dev/null || true && \
+             echo 'Limpando cache do Docker...' && \
+             docker builder prune -f 2>/dev/null || true && \
+             echo 'Construindo novas imagens (sem cache)...' && \
+             docker-compose -f docker-compose.remote-db.yml -p volei build --no-cache --pull --force-rm && \
+             echo 'Subindo serviços (API + Frontend - usando banco remoto)...' && \
+             docker-compose -f docker-compose.remote-db.yml -p volei up -d && \
+             echo 'Aguardando inicialização (20s)...' && \
+             sleep 20 && \
+             echo 'Status dos containers:' && \
+             docker ps --filter 'name=volei' --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' && \
+             echo '' && \
+             echo 'Últimos logs da API:' && \
+             docker logs volei-api --tail=20 && \
+             echo '' && \
+             echo 'Últimos logs do frontend:' && \
+             docker logs volei-frontend --tail=20"
 
       - name: Health Check
         env:
