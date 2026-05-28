@@ -10,14 +10,6 @@ services:
     container_name: volei-api
     restart: unless-stopped
     command: npm run api
-    environment:
-      # Banco de dados REMOTO (configure no .env)
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-3306}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      API_PORT: 3001
     ports:
       - "3001:3001"
     networks:
@@ -34,9 +26,6 @@ services:
     restart: unless-stopped
     command: npm run dev
     environment:
-      # API URL (usa nome do serviço Docker, não localhost)
-      VITE_API_URL: http://api:3001
-
       # Proxy Reverso (nginx-proxy-automation) - Detectado automaticamente
       VIRTUAL_HOST: ${VOLEI_DOMAIN}
       VIRTUAL_PORT: 8080
@@ -55,6 +44,8 @@ services:
     networks:
       - volei-network
       - Infra  # Rede da infraestrutura (nginx-proxy, cloudflare-dns, etc)
+    env_file:
+      - .env
     labels:
       # Labels para nginx-proxy encontrar o container
       - "com.github.nginx-proxy.nginx-proxy.enable=true"
