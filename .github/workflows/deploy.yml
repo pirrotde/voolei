@@ -94,13 +94,13 @@ jobs:
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
           sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p $SSH_PORT $SSH_USER@$SSH_HOST \
-            "export VOLEI_DOMAIN='$VOLEI_DOMAIN' && \
-             export DEFAULT_EMAIL='$DEFAULT_EMAIL' && \
-             export DB_HOST='$DB_HOST' && \
-             export DB_PORT='$DB_PORT' && \
-             export DB_USER='$DB_USER' && \
-             export DB_PASSWORD='$DB_PASSWORD' && \
-             export DB_NAME='$DB_NAME' && \
+            "export VOLEI_DOMAIN=\"$VOLEI_DOMAIN\" && \
+             export DEFAULT_EMAIL=\"$DEFAULT_EMAIL\" && \
+             export DB_HOST=\"$DB_HOST\" && \
+             export DB_PORT=\"$DB_PORT\" && \
+             export DB_USER=\"$DB_USER\" && \
+             export DB_PASSWORD=\"$DB_PASSWORD\" && \
+             export DB_NAME=\"$DB_NAME\" && \
              cd ${{ env.DEPLOY_PATH }} && \
              echo 'Criando/Atualizando .env...' && \
              echo '# Proxy Reverso' > .env && \
